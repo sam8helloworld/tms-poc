@@ -1,0 +1,20 @@
+# 環境変数
+.env
+
+# Docker
+docker-compose.override.yml
+
+# データベース
+*.sql~
+*.sql.bak
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
