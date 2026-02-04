@@ -131,3 +131,29 @@ When working with rate calculations, `tier_matrix` JSONB structure for distance-
 ```
 
 The `calculation_type` field in `rate_items` can be: FIXED, DISTANCE_TIER, WEIGHT_TIER, PERCENTAGE
+
+## Domain Model
+
+### Go Implementation
+
+The domain model follows Domain-Driven Design (DDD) principles with a layered architecture:
+
+- **Shared Layer**: Common value objects (Money, DateRange, TransportMode, LocationType)
+- **Route Aggregate**: Physical network modeling (Location, Lane, PhysicalRoute, RouteSegment)
+- **Commercial Aggregate**: Business transactions (LogisticsProvider, ServiceContract, Tariff, TariffLineItem)
+- **Context Layer**: Calculation context (ShipmentContext)
+- **Logic Layer**: Business rules (ServiceScope, PricingStrategy interfaces and implementations)
+- **Service Layer**: Domain services (FreightEstimator)
+
+Domain model source code is located in `src/internal/domain/`.
+
+### Domain Model Diagram
+
+The current domain model is documented in Mermaid format at `spec/domain-model.md`.
+
+**IMPORTANT**: Whenever you modify the domain model implementation:
+1. Update the corresponding Go source files in `src/internal/domain/`
+2. Update the Mermaid diagram in `spec/domain-model.md` to reflect the changes
+3. Ensure the diagram accurately represents all entities, value objects, aggregates, and their relationships
+
+The diagram should be kept in sync with the codebase to serve as living documentation.
