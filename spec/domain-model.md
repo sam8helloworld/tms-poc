@@ -127,7 +127,7 @@ classDiagram
         +decimal.Decimal Quantity
         +decimal.Decimal WeightKG
         +decimal.Decimal VolumeM3
-        +map~string,interface{}~ Attributes
+        +map Attributes
     }
 
     %% ============================================
