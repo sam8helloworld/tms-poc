@@ -27,43 +27,53 @@ const (
 // Value Objects
 // ==========================================
 
-type TrackingStatus string
+// TrackingStatus: shared.TrackingStatus を再エクスポート
+// 互換性のために残す
+type TrackingStatus = shared.TrackingStatus
 
 const (
-	StatusBooked    TrackingStatus = "BOOKED"
-	StatusInTransit TrackingStatus = "IN_TRANSIT"
-	StatusException TrackingStatus = "EXCEPTION" // 遅延・トラブル
-	StatusArrived   TrackingStatus = "ARRIVED"
+	StatusBooked    = shared.StatusBooked
+	StatusInTransit = shared.StatusInTransit
+	StatusException = shared.StatusException
+	StatusArrived   = shared.StatusArrived
 )
 
 // ==========================================
-// 2. Aggregate Root: E2E Tracking
+// 2. Aggregate Root: TrackingUnit (追跡単位)
 // ==========================================
 
-type ShipmentTracking struct {
-	ID         uuid.UUID
-	ShipmentID uuid.UUID
+// TrackingUnit: 追跡の最小単位 (Aggregate Root)
+// 物理的な輸送単位（コンテナ1本、トラック1台など）を表す
+// これがSeaRates API等の更新対象になる
+// 旧 ShipmentTracking からリネーム
+type TrackingUnit struct {
+	ID uuid.UUID
 
-	// Master Tracking Number (荷主に伝える代表番号)
-	MasterTrackingNumber string
+	// 物理的な識別子
+	TrackingNumber string // Container No, AWB, B/L No
+	CarrierID      uuid.UUID
+
+	// 逆参照: この追跡単位には、どのShipmentの荷物が載っているか？
+	// (LCL/混載の場合、複数のShipmentIDが入ることもある)
+	IncludedShipmentIDs []uuid.UUID
 
 	// Segments: E2Eの工程ごとの追跡状況
 	// NetworkドメインのRouteSegmentと1:1またはN:1で対応
 	Segments []*TrackingSegment
 
-	// Overall Status
+	// Overall Status (実行ステータス - Source of Truth)
 	CurrentStatus TrackingStatus
 	LastUpdated   time.Time
 }
 
 // UpdateSegmentStatus: 特定の区間に対して更新をかける
-func (st *ShipmentTracking) UpdateSegmentStatus(
+func (tu *TrackingUnit) UpdateSegmentStatus(
 	segmentID uuid.UUID,
 	event TrackingEvent,
 ) error {
 	// 1. 対象のセグメントを探す
 	var targetSeg *TrackingSegment
-	for _, seg := range st.Segments {
+	for _, seg := range tu.Segments {
 		if seg.ID == segmentID {
 			targetSeg = seg
 			break
@@ -77,9 +87,61 @@ func (st *ShipmentTracking) UpdateSegmentStatus(
 	targetSeg.AddEvent(event)
 
 	// 3. 全体のステータスを再評価 (例: 全セグメント完了ならARRIVED)
-	// st.recalculateOverallStatus()
+	tu.recalculateOverallStatus()
 
 	return nil
+}
+
+// recalculateOverallStatus: 全セグメントの状態から全体ステータスを再計算
+func (tu *TrackingUnit) recalculateOverallStatus() {
+	if len(tu.Segments) == 0 {
+		tu.CurrentStatus = StatusBooked
+		return
+	}
+
+	allArrived := true
+	anyInTransit := false
+	anyException := false
+
+	for _, seg := range tu.Segments {
+		switch seg.Status {
+		case StatusInTransit:
+			anyInTransit = true
+			allArrived = false
+		case StatusException:
+			anyException = true
+			allArrived = false
+		case StatusBooked:
+			allArrived = false
+		case StatusArrived:
+			// 到着済み - 継続チェック
+		default:
+			allArrived = false
+		}
+	}
+
+	if allArrived {
+		tu.CurrentStatus = StatusArrived
+	} else if anyException {
+		tu.CurrentStatus = StatusException
+	} else if anyInTransit {
+		tu.CurrentStatus = StatusInTransit
+	} else {
+		tu.CurrentStatus = StatusBooked
+	}
+
+	tu.LastUpdated = time.Now()
+}
+
+// AddShipmentID: Shipment IDを追加（混載対応）
+func (tu *TrackingUnit) AddShipmentID(shipmentID uuid.UUID) {
+	// 重複チェック
+	for _, id := range tu.IncludedShipmentIDs {
+		if id == shipmentID {
+			return
+		}
+	}
+	tu.IncludedShipmentIDs = append(tu.IncludedShipmentIDs, shipmentID)
 }
 
 // ==========================================
