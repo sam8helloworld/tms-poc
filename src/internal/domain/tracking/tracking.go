@@ -1,7 +1,6 @@
 package tracking
 
 import (
-	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -61,6 +60,8 @@ type TrackingNumber struct {
 // これがSeaRates API等の更新対象になる
 // 旧 ShipmentTracking からリネーム
 type TrackingUnit struct {
+	shared.EventRecorder
+
 	ID TrackingUnitID
 
 	// 物理的な識別子
@@ -69,11 +70,47 @@ type TrackingUnit struct {
 
 	// Segments: E2Eの工程ごとの追跡状況
 	// NetworkドメインのRouteSegmentと1:1またはN:1で対応
-	Segments []*TrackingSegment
+	segments []*TrackingSegment
 
 	// Overall Status (実行ステータス - Source of Truth)
-	CurrentStatus TrackingStatus
+	currentStatus TrackingStatus
 	LastUpdated   time.Time
+}
+
+// NewTrackingUnit: TrackingUnitのファクトリ関数
+func NewTrackingUnit(
+	trackingNumber TrackingNumber,
+	carrierID uuid.UUID,
+	segments []*TrackingSegment,
+) (*TrackingUnit, error) {
+	if trackingNumber.Number == "" {
+		return nil, shared.NewDomainError(shared.ErrInvalidArgument, "tracking number is required")
+	}
+	if carrierID == uuid.Nil {
+		return nil, shared.NewDomainError(shared.ErrInvalidArgument, "carrierID is required")
+	}
+
+	tu := &TrackingUnit{
+		ID:             TrackingUnitID(uuid.New()),
+		TrackingNumber: trackingNumber,
+		CarrierID:      carrierID,
+		segments:       segments,
+		LastUpdated:    time.Now(),
+	}
+	tu.recalculateOverallStatus()
+	return tu, nil
+}
+
+// CurrentStatus: ステータスのgetter
+func (tu *TrackingUnit) CurrentStatus() TrackingStatus {
+	return tu.currentStatus
+}
+
+// Segments: セグメントのgetter（コピーを返却）
+func (tu *TrackingUnit) Segments() []*TrackingSegment {
+	result := make([]*TrackingSegment, len(tu.segments))
+	copy(result, tu.segments)
+	return result
 }
 
 // UpdateSegmentStatus: 特定の区間に対して更新をかける
@@ -83,14 +120,14 @@ func (tu *TrackingUnit) UpdateSegmentStatus(
 ) error {
 	// 1. 対象のセグメントを探す
 	var targetSeg *TrackingSegment
-	for _, seg := range tu.Segments {
+	for _, seg := range tu.segments {
 		if seg.ID == segmentID {
 			targetSeg = seg
 			break
 		}
 	}
 	if targetSeg == nil {
-		return errors.New("segment not found")
+		return shared.NewDomainError(shared.ErrNotFound, "segment not found")
 	}
 
 	// 2. セグメントの状態を更新
@@ -99,13 +136,16 @@ func (tu *TrackingUnit) UpdateSegmentStatus(
 	// 3. 全体のステータスを再評価 (例: 全セグメント完了ならARRIVED)
 	tu.recalculateOverallStatus()
 
+	// 4. イベントを発行
+	tu.RecordEvent(NewTrackingEventReceived(uuid.UUID(tu.ID), segmentID, event.Code))
+
 	return nil
 }
 
 // recalculateOverallStatus: 全セグメントの状態から全体ステータスを再計算
 func (tu *TrackingUnit) recalculateOverallStatus() {
-	if len(tu.Segments) == 0 {
-		tu.CurrentStatus = StatusBooked
+	if len(tu.segments) == 0 {
+		tu.currentStatus = StatusBooked
 		return
 	}
 
@@ -113,7 +153,7 @@ func (tu *TrackingUnit) recalculateOverallStatus() {
 	anyInTransit := false
 	anyException := false
 
-	for _, seg := range tu.Segments {
+	for _, seg := range tu.segments {
 		switch seg.Status {
 		case StatusInTransit:
 			anyInTransit = true
@@ -131,13 +171,13 @@ func (tu *TrackingUnit) recalculateOverallStatus() {
 	}
 
 	if allArrived {
-		tu.CurrentStatus = StatusArrived
+		tu.currentStatus = StatusArrived
 	} else if anyException {
-		tu.CurrentStatus = StatusException
+		tu.currentStatus = StatusException
 	} else if anyInTransit {
-		tu.CurrentStatus = StatusInTransit
+		tu.currentStatus = StatusInTransit
 	} else {
-		tu.CurrentStatus = StatusBooked
+		tu.currentStatus = StatusBooked
 	}
 
 	tu.LastUpdated = time.Now()
