@@ -131,11 +131,11 @@ classDiagram
         +string ShipmentNo
         +uuid.UUID ShipperID
         +ShipmentPlan Plan
-        +TrackingRef[] Trackings
+        +uuid.UUID[] TrackingUnitIDs
         +ShipmentCost Cost
         +ShipmentStatus Status
-        +UpdateStatus()
-        +AddTrackingRef(TrackingRef)
+        +AddTrackingUnitID(uuid.UUID)
+        +UpdateShipmentStatus(ShipmentStatus)
         +SetEstimatedCost(EstimatedCost)
         +SetEstimatedActualCost(EstimatedActualCost)
     }
@@ -161,14 +161,6 @@ classDiagram
         +decimal.Decimal WeightKG
         +decimal.Decimal VolumeM3
         +uuid.UUID* LoadedOnTrackingID
-    }
-
-    class TrackingRef {
-        <<Value Object>>
-        +uuid.UUID TrackingUnitID
-        +string TrackingNo
-        +TrackingStatus LatestStatus
-        +time.Time LastUpdated
     }
 
     class ShipmentCost {
@@ -197,11 +189,9 @@ classDiagram
         +uuid.UUID ID
         +string TrackingNumber
         +uuid.UUID CarrierID
-        +uuid.UUID[] IncludedShipmentIDs
         +TrackingSegment[] Segments
         +TrackingStatus CurrentStatus
         +UpdateSegmentStatus(uuid.UUID, TrackingEvent)
-        +AddShipmentID(uuid.UUID)
     }
 
     %% ============================================
@@ -339,6 +329,10 @@ classDiagram
         +AnalyzeCostGap(EstimatedActualCost, ActualCost) CostGapAnalysis, error
     }
 
+    class ShipmentStatusUpdater {
+        +UpdateStatus(Shipment, TrackingUnit[])
+    }
+
     %% ============================================
     %% Relationships (関連)
     %% ============================================
@@ -367,7 +361,7 @@ classDiagram
     %% Shipment Aggregate
     Shipment *-- ShipmentPlan : contains
     Shipment *-- ShipmentCost : contains
-    Shipment o-- TrackingRef : references
+    Shipment --> TrackingUnit : references (TrackingUnitIDs)
     Shipment ..> ShipmentStatus : uses
     ShipmentPlan *-- ShipmentItem : contains
     ShipmentPlan --> PhysicalRoute : has
@@ -375,10 +369,8 @@ classDiagram
     ShipmentCost --> EstimatedCost : has
     ShipmentCost --> EstimatedActualCost : has
     ShipmentCost --> ActualCost : has
-    TrackingRef --> TrackingUnit : points to
 
     %% Tracking Aggregate
-    TrackingUnit --> Shipment : references (IncludedShipmentIDs)
     TrackingUnit ..> TrackingStatus : uses
 
     %% Cost Relations
@@ -412,6 +404,8 @@ classDiagram
     CostCalculationService ..> EstimatedCost : produces
     CostCalculationService ..> EstimatedActualCost : produces
     CostCalculationService ..> CostGapAnalysis : produces
+    ShipmentStatusUpdater ..> Shipment : updates
+    ShipmentStatusUpdater ..> TrackingUnit : uses
 
     %% Shared Layer
     FlatStrategy ..> Money : uses
@@ -448,25 +442,24 @@ classDiagram
 ### 4. Shipment Aggregate (出荷案件集約) ★新規
 - **Shipment**: 出荷案件（集約ルート）
   - 荷主視点での「1つの仕事」を表現
-  - 計画（ShipmentPlan）と実績（TrackingRef）を統合管理
+  - 計画（ShipmentPlan）と実績（TrackingUnitIDs）を統合管理
   - 費用情報（ShipmentCost）を保持
+  - TrackingUnitへの参照はIDのみ保持（集約境界の明確化）
 - **ShipmentPlan**: 計画情報（エンティティ）
   - 予定ルート、貨物明細、使用料金表を保持
 - **ShipmentItem**: 貨物明細（エンティティ）
   - 商品、重量、容積などの貨物情報
   - どのTrackingUnitに積載されているかを参照
-- **TrackingRef**: 追跡参照（値オブジェクト）
-  - TrackingUnitへの軽量な参照
-  - IDと最新ステータスのキャッシュのみ保持
 - **ShipmentCost**: 費用情報（エンティティ）
   - 見積費用、想定実費用、実請求額を管理
 
 ### 5. Tracking Aggregate (追跡集約) ★リファクタリング
 - **TrackingUnit**: 追跡単位（集約ルート）
   - 物理的な輸送単位（コンテナ1本、トラック1台など）
+  - Master B/L、Container No、AWB などの物理的な追跡番号を持つ
   - 旧ShipmentTrackingからリネーム
-  - どのShipmentの荷物が載っているかを逆参照
   - SeaRates等のAPIからの更新対象
+  - 混載（LCL）の場合、複数のShipmentから同じTrackingUnitが参照される
 
 ### 6. Context Layer (コンテキスト層)
 - **ShipmentContext**: 計算用DTO（計算インターフェース）
@@ -500,19 +493,24 @@ classDiagram
   - 計画ベースの見積費用算出
   - トラッキング実績ベースの想定費用算出（セグメント単位）
   - 費用差異分析（会計ガバナンス・コンプライアンス維持）
+- **ShipmentStatusUpdater**: ステータス更新サービス ★新規
+  - TrackingUnitの状態からShipmentのステータスを計算・更新
+  - 集約境界を越えたステータス同期を管理
 
 ## 主要な設計パターン
 
 1. **Aggregate分離**: ShipmentとTrackingUnitを独立した集約として分離
    - 更新頻度の違い（計画 vs 実績）に対応
    - ライフサイクルの違いを明確化
+   - 集約間の参照はIDのみ（疎結合）
 2. **Strategy Pattern**: PricingStrategyによる計算ロジックの分離
 3. **Composite Pattern**: CompositeStrategyによる料金の合成
-4. **Value Object**: Money, DateRange, TrackingRef（不変性、等価性）
+4. **Value Object**: Money, DateRange（不変性、等価性）
 5. **Aggregate**: Route集約、Commercial集約、Shipment集約、Tracking集約
 6. **Domain Service**: 複数集約にまたがるロジック
    - FreightEstimator: 見積計算
    - CostCalculationService: 実績ベース費用計算とGap分析
+   - ShipmentStatusUpdater: 集約を越えたステータス更新
 7. **DTO Pattern**: ShipmentContext（計算用の軽量なインターフェース）
 
 ## 費用計算の流れ

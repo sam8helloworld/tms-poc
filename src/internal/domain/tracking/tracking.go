@@ -42,20 +42,18 @@ const (
 // 2. Aggregate Root: TrackingUnit (追跡単位)
 // ==========================================
 
+type TrackingUnitID = uuid.UUID
+
 // TrackingUnit: 追跡の最小単位 (Aggregate Root)
 // 物理的な輸送単位（コンテナ1本、トラック1台など）を表す
 // これがSeaRates API等の更新対象になる
 // 旧 ShipmentTracking からリネーム
 type TrackingUnit struct {
-	ID uuid.UUID
+	ID TrackingUnitID
 
 	// 物理的な識別子
-	TrackingNumber string // Container No, AWB, B/L No
+	TrackingNumber string // Container No, AWB, Master B/L No
 	CarrierID      uuid.UUID
-
-	// 逆参照: この追跡単位には、どのShipmentの荷物が載っているか？
-	// (LCL/混載の場合、複数のShipmentIDが入ることもある)
-	IncludedShipmentIDs []uuid.UUID
 
 	// Segments: E2Eの工程ごとの追跡状況
 	// NetworkドメインのRouteSegmentと1:1またはN:1で対応
@@ -131,17 +129,6 @@ func (tu *TrackingUnit) recalculateOverallStatus() {
 	}
 
 	tu.LastUpdated = time.Now()
-}
-
-// AddShipmentID: Shipment IDを追加（混載対応）
-func (tu *TrackingUnit) AddShipmentID(shipmentID uuid.UUID) {
-	// 重複チェック
-	for _, id := range tu.IncludedShipmentIDs {
-		if id == shipmentID {
-			return
-		}
-	}
-	tu.IncludedShipmentIDs = append(tu.IncludedShipmentIDs, shipmentID)
 }
 
 // ==========================================

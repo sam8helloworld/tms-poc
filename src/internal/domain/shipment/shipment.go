@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sam8helloworld/tms-poc/internal/domain/route"
-	"github.com/sam8helloworld/tms-poc/internal/domain/shared"
+	"github.com/sam8helloworld/tms-poc/internal/domain/tracking"
 	"github.com/shopspring/decimal"
 )
 
@@ -13,23 +13,25 @@ import (
 // Aggregate Root: Shipment (出荷案件)
 // ==========================================
 
+type ShipmentID = uuid.UUID
+
 // Shipment: 出荷案件 (Aggregate Root)
 // 荷主視点での「1つの仕事」を表す
 // 商流コンテキストの主役
 type Shipment struct {
-	ID            uuid.UUID
-	ShipmentNo    string // 出荷番号 (荷主が参照する番号)
-	ShipperID     uuid.UUID
-	ConsigneeID   uuid.UUID
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID          ShipmentID
+	ShipmentNo  string // 出荷番号 (荷主が参照する番号)
+	ShipperID   uuid.UUID
+	ConsigneeID uuid.UUID
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 
 	// 計画情報
 	Plan ShipmentPlan
 
-	// 追跡単位への参照 (Value Objects)
+	// 追跡単位への参照 (IDのみ)
 	// 1つのShipmentが複数のコンテナ(TrackingUnit)に分かれる場合がある
-	Trackings []TrackingRef
+	TrackingUnitIDs []tracking.TrackingUnitID
 
 	// 費用情報
 	Cost ShipmentCost
@@ -90,11 +92,12 @@ func (sp *ShipmentPlan) GetTotalQuantity() decimal.Decimal {
 // ==========================================
 // Entities: ShipmentItem (貨物明細)
 // ==========================================
+type ShipmentItemID = uuid.UUID
 
 // ShipmentItem: 貨物明細 (Entity)
 // 例: "T-shirts 500箱", "Jeans 300箱"
 type ShipmentItem struct {
-	ID          uuid.UUID
+	ID          ShipmentItemID
 	Commodity   string          // 商品名
 	HSCode      string          // HSコード (関税分類)
 	Quantity    decimal.Decimal // 数量
@@ -108,19 +111,6 @@ type ShipmentItem struct {
 
 	// カスタム属性
 	Attributes map[string]interface{}
-}
-
-// ==========================================
-// Value Objects: TrackingRef (追跡参照)
-// ==========================================
-
-// TrackingRef: 他の集約への参照 (Value Object)
-// ShipmentはTrackingの中身(Events等)は持たず、IDと現在の状態のコピーだけを持つ
-type TrackingRef struct {
-	TrackingUnitID uuid.UUID
-	TrackingNo     string                 // B/L No, Container No
-	LatestStatus   shared.TrackingStatus  // 表示用のキャッシュ
-	LastUpdated    time.Time
 }
 
 // ==========================================
@@ -148,63 +138,22 @@ type ShipmentCost struct {
 // Methods: Shipment (集約ルート)
 // ==========================================
 
-// UpdateStatus: 全TrackingUnitの状態から要約ステータスを更新
-func (s *Shipment) UpdateStatus() {
-	if len(s.Trackings) == 0 {
-		s.Status = StatusPlanned
-		return
-	}
-
-	allCompleted := true
-	anyInTransit := false
-	anyException := false
-
-	for _, ref := range s.Trackings {
-		switch ref.LatestStatus {
-		case shared.StatusInTransit:
-			anyInTransit = true
-			allCompleted = false
-		case shared.StatusException:
-			anyException = true
-			allCompleted = false
-		case shared.StatusBooked:
-			allCompleted = false
-		case shared.StatusArrived:
-			// 到着済み - 継続チェック
-		default:
-			allCompleted = false
+// AddTrackingUnitID: TrackingUnit IDを追加
+func (s *Shipment) AddTrackingUnitID(trackingUnitID tracking.TrackingUnitID) {
+	// 重複チェック
+	for _, id := range s.TrackingUnitIDs {
+		if id == trackingUnitID {
+			return
 		}
 	}
-
-	if allCompleted {
-		s.Status = StatusCompleted
-	} else if anyException {
-		s.Status = StatusException
-	} else if anyInTransit {
-		s.Status = StatusInTransit
-	} else {
-		s.Status = StatusBooked
-	}
-
+	s.TrackingUnitIDs = append(s.TrackingUnitIDs, trackingUnitID)
 	s.UpdatedAt = time.Now()
 }
 
-// AddTrackingRef: TrackingUnit参照を追加
-func (s *Shipment) AddTrackingRef(ref TrackingRef) {
-	s.Trackings = append(s.Trackings, ref)
-	s.UpdateStatus()
-}
-
-// UpdateTrackingRef: TrackingUnit参照を更新
-func (s *Shipment) UpdateTrackingRef(trackingUnitID uuid.UUID, status shared.TrackingStatus, lastUpdated time.Time) {
-	for i, ref := range s.Trackings {
-		if ref.TrackingUnitID == trackingUnitID {
-			s.Trackings[i].LatestStatus = status
-			s.Trackings[i].LastUpdated = lastUpdated
-			break
-		}
-	}
-	s.UpdateStatus()
+// UpdateShipmentStatus: ステータスを更新（ドメインサービスから呼ばれる）
+func (s *Shipment) UpdateShipmentStatus(status ShipmentStatus) {
+	s.Status = status
+	s.UpdatedAt = time.Now()
 }
 
 // SetEstimatedCost: 見積費用を設定
