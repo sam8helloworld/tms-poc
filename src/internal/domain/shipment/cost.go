@@ -122,15 +122,15 @@ type CostItemGap struct {
 
 // CalculateTotal: EstimatedCostの合計金額を計算
 func (ec *EstimatedCost) CalculateTotal() shared.Money {
-	total := shared.Money{
-		Amount:   shared.NewDecimal(0),
-		Currency: "USD", // デフォルト通貨
+	if len(ec.LineItems) == 0 {
+		return shared.ZeroMoney("USD")
 	}
 
+	total := shared.ZeroMoney(ec.LineItems[0].Amount.Currency)
 	for _, item := range ec.LineItems {
-		// 通貨が一致する場合のみ加算（簡易実装）
-		if item.Amount.Currency == total.Currency {
-			total.Amount = total.Amount.Add(item.Amount.Amount)
+		result, err := total.Add(item.Amount)
+		if err == nil {
+			total = result
 		}
 	}
 
@@ -139,15 +139,15 @@ func (ec *EstimatedCost) CalculateTotal() shared.Money {
 
 // CalculateTotal: EstimatedActualCostの合計金額を計算
 func (eac *EstimatedActualCost) CalculateTotal() shared.Money {
-	total := shared.Money{
-		Amount:   shared.NewDecimal(0),
-		Currency: "USD", // デフォルト通貨
+	if len(eac.SegmentCosts) == 0 {
+		return shared.ZeroMoney("USD")
 	}
 
+	total := shared.ZeroMoney(eac.SegmentCosts[0].TotalAmount.Currency)
 	for _, segCost := range eac.SegmentCosts {
-		// 通貨が一致する場合のみ加算（簡易実装）
-		if segCost.TotalAmount.Currency == total.Currency {
-			total.Amount = total.Amount.Add(segCost.TotalAmount.Amount)
+		result, err := total.Add(segCost.TotalAmount)
+		if err == nil {
+			total = result
 		}
 	}
 
@@ -156,15 +156,15 @@ func (eac *EstimatedActualCost) CalculateTotal() shared.Money {
 
 // CalculateTotal: ActualCostの合計金額を計算
 func (ac *ActualCost) CalculateTotal() shared.Money {
-	total := shared.Money{
-		Amount:   shared.NewDecimal(0),
-		Currency: "USD", // デフォルト通貨
+	if len(ac.LineItems) == 0 {
+		return shared.ZeroMoney("USD")
 	}
 
+	total := shared.ZeroMoney(ac.LineItems[0].Amount.Currency)
 	for _, item := range ac.LineItems {
-		// 通貨が一致する場合のみ加算（簡易実装）
-		if item.Amount.Currency == total.Currency {
-			total.Amount = total.Amount.Add(item.Amount.Amount)
+		result, err := total.Add(item.Amount)
+		if err == nil {
+			total = result
 		}
 	}
 
@@ -173,15 +173,15 @@ func (ac *ActualCost) CalculateTotal() shared.Money {
 
 // CalculateTotal: SegmentCostの合計金額を計算
 func (sc *SegmentCost) CalculateTotal() shared.Money {
-	total := shared.Money{
-		Amount:   shared.NewDecimal(0),
-		Currency: "USD", // デフォルト通貨
+	if len(sc.LineItems) == 0 {
+		return shared.ZeroMoney("USD")
 	}
 
+	total := shared.ZeroMoney(sc.LineItems[0].Amount.Currency)
 	for _, item := range sc.LineItems {
-		// 通貨が一致する場合のみ加算（簡易実装）
-		if item.Amount.Currency == total.Currency {
-			total.Amount = total.Amount.Add(item.Amount.Amount)
+		result, err := total.Add(item.Amount)
+		if err == nil {
+			total = result
 		}
 	}
 
@@ -190,7 +190,7 @@ func (sc *SegmentCost) CalculateTotal() shared.Money {
 
 // IsOverBudget: 予算超過かどうかを判定
 func (cg *CostGapAnalysis) IsOverBudget() bool {
-	return cg.TotalGap.Amount.GreaterThan(shared.NewDecimal(0))
+	return cg.TotalGap.IsPositive()
 }
 
 // IsWithinTolerance: 許容範囲内かどうかを判定

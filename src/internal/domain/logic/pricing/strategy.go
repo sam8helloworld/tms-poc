@@ -1,13 +1,13 @@
 package pricing
 
 import (
-	"github.com/sam8helloworld/tms-poc/internal/domain/context"
+	"github.com/sam8helloworld/tms-poc/internal/domain/calcparam"
 	"github.com/sam8helloworld/tms-poc/internal/domain/shared"
 	"github.com/shopspring/decimal"
 )
 
 type PricingStrategy interface {
-	Calculate(ctx context.ShipmentContext) (shared.Money, error)
+	Calculate(ctx calcparam.ShipmentContext) (shared.Money, error)
 	Type() string
 }
 
@@ -17,10 +17,9 @@ type FlatStrategy struct {
 }
 
 func (s *FlatStrategy) Type() string { return "FLAT" }
-func (s *FlatStrategy) Calculate(ctx context.ShipmentContext) (shared.Money, error) {
+func (s *FlatStrategy) Calculate(ctx calcparam.ShipmentContext) (shared.Money, error) {
 	// 単価 * 数量
-	val := s.Amount.Amount.Mul(ctx.Quantity)
-	return shared.Money{Amount: val, Currency: s.Amount.Currency}, nil
+	return s.Amount.Multiply(ctx.Quantity), nil
 }
 
 // Stage 2: Dynamic (CEL Expression)
@@ -31,7 +30,7 @@ type CelExpressionStrategy struct {
 }
 
 func (s *CelExpressionStrategy) Type() string { return "CEL" }
-func (s *CelExpressionStrategy) Calculate(ctx context.ShipmentContext) (shared.Money, error) {
+func (s *CelExpressionStrategy) Calculate(ctx calcparam.ShipmentContext) (shared.Money, error) {
 	// ... Google CELによる評価ロジック ...
 	return shared.Money{Amount: decimal.NewFromFloat(100.0), Currency: s.Currency}, nil
 }
@@ -43,13 +42,26 @@ type CompositeStrategy struct {
 }
 
 func (s *CompositeStrategy) Type() string { return "COMPOSITE" }
-func (s *CompositeStrategy) Calculate(ctx context.ShipmentContext) (shared.Money, error) {
-	total := decimal.Zero
-	var currency string
-	for _, step := range s.Steps {
-		res, _ := step.Calculate(ctx)
-		total = total.Add(res.Amount)
-		currency = res.Currency
+func (s *CompositeStrategy) Calculate(ctx calcparam.ShipmentContext) (shared.Money, error) {
+	if len(s.Steps) == 0 {
+		return shared.ZeroMoney("USD"), nil
 	}
-	return shared.Money{Amount: total, Currency: currency}, nil
+
+	first, err := s.Steps[0].Calculate(ctx)
+	if err != nil {
+		return shared.Money{}, err
+	}
+	total := first
+
+	for _, step := range s.Steps[1:] {
+		res, err := step.Calculate(ctx)
+		if err != nil {
+			return shared.Money{}, err
+		}
+		total, err = total.Add(res)
+		if err != nil {
+			return shared.Money{}, err
+		}
+	}
+	return total, nil
 }

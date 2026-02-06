@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sam8helloworld/tms-poc/internal/domain/commercial"
-	"github.com/sam8helloworld/tms-poc/internal/domain/context"
+	"github.com/sam8helloworld/tms-poc/internal/domain/calcparam"
 	"github.com/sam8helloworld/tms-poc/internal/domain/shared"
 	"github.com/sam8helloworld/tms-poc/internal/domain/shipment"
 	"github.com/sam8helloworld/tms-poc/internal/domain/tracking"
@@ -89,7 +89,7 @@ func (ccs *CostCalculationService) CalculateEstimatedActualCost(
 
 	// 各TrackingUnitのセグメントごとに費用を計算
 	for _, tu := range trackingUnits {
-		for idx, trackingSeg := range tu.Segments {
+		for idx, trackingSeg := range tu.Segments() {
 			segCost, err := ccs.calculateSegmentCost(
 				ship,
 				tu,
@@ -168,8 +168,6 @@ func (ccs *CostCalculationService) calculateSegmentCost(
 	}
 
 	// セグメント費用を構築
-	// RouteSegmentIDからOrigin/DestのLocationIDを取得
-	// 簡易実装のため、trackingSeg.RouteSegmentIDから直接取得することを想定
 	segCost := shipment.SegmentCost{
 		SegmentID:         trackingSeg.ID,
 		SegmentIndex:      segmentIndex,
@@ -204,17 +202,10 @@ func (ccs *CostCalculationService) determineSegmentCostStatus(
 }
 
 // applyProration: 進行中セグメントの按分計算
-// 実装例: 予定到着時刻を基準に進捗率を計算し、按分する
 func (ccs *CostCalculationService) applyProration(
 	amount shared.Money,
 	seg *tracking.TrackingSegment,
 ) shared.Money {
-	// 簡易実装: 50%で固定（実際の実装では進捗率を正確に計算する）
-	// 実装例:
-	// - EstimatedArrival と ActualDeparture から経過時間を計算
-	// - 予定所要時間に対する経過率を計算
-	// - 費用に掛け合わせる
-
 	if seg.EstimatedArrival != nil && seg.ActualDeparture != nil {
 		now := time.Now()
 		totalDuration := seg.EstimatedArrival.Sub(*seg.ActualDeparture)
@@ -223,26 +214,18 @@ func (ccs *CostCalculationService) applyProration(
 		if totalDuration > 0 {
 			progressRatio := float64(elapsedDuration) / float64(totalDuration)
 			if progressRatio > 1.0 {
-				progressRatio = 1.0 // 予定超過の場合は100%
+				progressRatio = 1.0
 			}
 			if progressRatio < 0.0 {
 				progressRatio = 0.0
 			}
 
-			proratedAmount := amount.Amount.Mul(decimal.NewFromFloat(progressRatio))
-			return shared.Money{
-				Amount:   proratedAmount,
-				Currency: amount.Currency,
-			}
+			return amount.Multiply(decimal.NewFromFloat(progressRatio))
 		}
 	}
 
 	// デフォルト: 50%
-	proratedAmount := amount.Amount.Mul(decimal.NewFromFloat(0.5))
-	return shared.Money{
-		Amount:   proratedAmount,
-		Currency: amount.Currency,
-	}
+	return amount.Multiply(decimal.NewFromFloat(0.5))
 }
 
 // ==========================================
@@ -255,13 +238,10 @@ func (ccs *CostCalculationService) AnalyzeCostGap(
 	actual shipment.ActualCost,
 ) (shipment.CostGapAnalysis, error) {
 	// 合計差異を計算
-	totalGap := shared.Money{
-		Amount:   actual.TotalAmount.Amount.Sub(estimated.TotalAmount.Amount),
-		Currency: actual.TotalAmount.Currency,
-	}
+	totalGap, _ := actual.TotalAmount.Sub(estimated.TotalAmount)
 
 	var totalGapPercentage float64
-	if !estimated.TotalAmount.Amount.IsZero() {
+	if !estimated.TotalAmount.IsZero() {
 		totalGapPercentage, _ = totalGap.Amount.Div(estimated.TotalAmount.Amount).Mul(decimal.NewFromInt(100)).Float64()
 	}
 
@@ -296,10 +276,9 @@ func (ccs *CostCalculationService) calculateItemGaps(
 	for _, segCost := range estimated.SegmentCosts {
 		for _, item := range segCost.LineItems {
 			if existing, ok := estimatedMap[item.ChargeCode]; ok {
-				// 既存の金額に加算
-				estimatedMap[item.ChargeCode] = shared.Money{
-					Amount:   existing.Amount.Add(item.Amount.Amount),
-					Currency: existing.Currency,
+				result, err := existing.Add(item.Amount)
+				if err == nil {
+					estimatedMap[item.ChargeCode] = result
 				}
 			} else {
 				estimatedMap[item.ChargeCode] = item.Amount
@@ -310,9 +289,9 @@ func (ccs *CostCalculationService) calculateItemGaps(
 	actualMap := make(map[string]shared.Money)
 	for _, item := range actual.LineItems {
 		if existing, ok := actualMap[item.ChargeCode]; ok {
-			actualMap[item.ChargeCode] = shared.Money{
-				Amount:   existing.Amount.Add(item.Amount.Amount),
-				Currency: existing.Currency,
+			result, err := existing.Add(item.Amount)
+			if err == nil {
+				actualMap[item.ChargeCode] = result
 			}
 		} else {
 			actualMap[item.ChargeCode] = item.Amount
@@ -334,13 +313,10 @@ func (ccs *CostCalculationService) calculateItemGaps(
 		est := estimatedMap[code]
 		act := actualMap[code]
 
-		gap := shared.Money{
-			Amount:   act.Amount.Sub(est.Amount),
-			Currency: act.Currency,
-		}
+		gap, _ := act.Sub(est)
 
 		var gapPercentage float64
-		if !est.Amount.IsZero() {
+		if !est.IsZero() {
 			gapPercentage, _ = gap.Amount.Div(est.Amount).Mul(decimal.NewFromInt(100)).Float64()
 		}
 
@@ -363,13 +339,13 @@ func (ccs *CostCalculationService) classifyGaps(
 	gaps []shipment.CostItemGap,
 ) (overBudget, underBudget, unexpected, missing []string) {
 	for _, gap := range gaps {
-		if gap.EstimatedAmount.Amount.IsZero() && !gap.ActualAmount.Amount.IsZero() {
+		if gap.EstimatedAmount.IsZero() && !gap.ActualAmount.IsZero() {
 			unexpected = append(unexpected, gap.ChargeCode)
-		} else if !gap.EstimatedAmount.Amount.IsZero() && gap.ActualAmount.Amount.IsZero() {
+		} else if !gap.EstimatedAmount.IsZero() && gap.ActualAmount.IsZero() {
 			missing = append(missing, gap.ChargeCode)
-		} else if gap.Gap.Amount.GreaterThan(decimal.Zero) {
+		} else if gap.Gap.IsPositive() {
 			overBudget = append(overBudget, gap.ChargeCode)
-		} else if gap.Gap.Amount.LessThan(decimal.Zero) {
+		} else if gap.Gap.IsNegative() {
 			underBudget = append(underBudget, gap.ChargeCode)
 		}
 	}
@@ -382,7 +358,7 @@ func (ccs *CostCalculationService) deriveGapReason(
 	gap shared.Money,
 	gapPercentage float64,
 ) string {
-	if gap.Amount.IsZero() {
+	if gap.IsZero() {
 		return "No gap"
 	}
 
@@ -407,8 +383,8 @@ func (ccs *CostCalculationService) deriveGapReason(
 // convertPlanToContext: ShipmentPlanをShipmentContextに変換
 func (ccs *CostCalculationService) convertPlanToContext(
 	plan *shipment.ShipmentPlan,
-) context.ShipmentContext {
-	return context.ShipmentContext{
+) calcparam.ShipmentContext {
+	return calcparam.ShipmentContext{
 		Route:      plan.PlannedRoute,
 		Quantity:   plan.GetTotalQuantity(),
 		WeightKG:   plan.GetTotalWeight(),
@@ -421,12 +397,8 @@ func (ccs *CostCalculationService) convertPlanToContext(
 func (ccs *CostCalculationService) createContextForSegment(
 	ship *shipment.Shipment,
 	trackingSeg *tracking.TrackingSegment,
-) context.ShipmentContext {
-	// セグメントに対応する部分的なルートを作成
-	// 簡易実装: 元のPlannedRouteを使用
-	// 実装では、trackingSeg.RouteSegmentIDに対応するセグメントのみを含むルートを作成すべき
-
-	return context.ShipmentContext{
+) calcparam.ShipmentContext {
+	return calcparam.ShipmentContext{
 		Route:      ship.Plan.PlannedRoute,
 		Quantity:   ship.Plan.GetTotalQuantity(),
 		WeightKG:   ship.Plan.GetTotalWeight(),
