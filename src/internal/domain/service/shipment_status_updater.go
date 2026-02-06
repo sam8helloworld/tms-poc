@@ -1,7 +1,8 @@
-package shipment
+package service
 
 import (
 	"github.com/sam8helloworld/tms-poc/internal/domain/shared"
+	"github.com/sam8helloworld/tms-poc/internal/domain/shipment"
 	"github.com/sam8helloworld/tms-poc/internal/domain/tracking"
 )
 
@@ -20,11 +21,11 @@ func NewShipmentStatusUpdater() *ShipmentStatusUpdater {
 
 // UpdateStatus: 全TrackingUnitの状態からShipmentの要約ステータスを更新
 func (u *ShipmentStatusUpdater) UpdateStatus(
-	shipment *Shipment,
+	ship *shipment.Shipment,
 	trackingUnits []*tracking.TrackingUnit,
 ) {
 	if len(trackingUnits) == 0 {
-		shipment.UpdateShipmentStatus(StatusPlanned)
+		ship.UpdateShipmentStatus(shipment.StatusPlanned)
 		return
 	}
 
@@ -33,7 +34,7 @@ func (u *ShipmentStatusUpdater) UpdateStatus(
 	anyException := false
 
 	for _, tu := range trackingUnits {
-		switch tu.CurrentStatus {
+		switch tu.CurrentStatus() {
 		case shared.StatusInTransit:
 			anyInTransit = true
 			allCompleted = false
@@ -49,16 +50,16 @@ func (u *ShipmentStatusUpdater) UpdateStatus(
 		}
 	}
 
-	var newStatus ShipmentStatus
+	var newStatus shipment.ShipmentStatus
 	if allCompleted {
-		newStatus = StatusCompleted
+		newStatus = shipment.StatusCompleted
 	} else if anyException {
-		newStatus = StatusException
+		newStatus = shipment.StatusException
 	} else if anyInTransit {
-		newStatus = StatusInTransit
+		newStatus = shipment.StatusInTransit
 	} else {
-		newStatus = StatusBooked
+		newStatus = shipment.StatusBooked
 	}
 
-	shipment.UpdateShipmentStatus(newStatus)
+	ship.UpdateShipmentStatus(newStatus)
 }

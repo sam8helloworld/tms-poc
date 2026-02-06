@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sam8helloworld/tms-poc/internal/domain/route"
-	"github.com/sam8helloworld/tms-poc/internal/domain/tracking"
+	"github.com/sam8helloworld/tms-poc/internal/domain/shared"
 	"github.com/shopspring/decimal"
 )
 
@@ -19,6 +19,8 @@ type ShipmentID = uuid.UUID
 // 荷主視点での「1つの仕事」を表す
 // 商流コンテキストの主役
 type Shipment struct {
+	shared.EventRecorder
+
 	ID          ShipmentID
 	ShipmentNo  string // 出荷番号 (荷主が参照する番号)
 	ShipperID   uuid.UUID
@@ -31,14 +33,65 @@ type Shipment struct {
 
 	// 追跡単位への参照 (IDのみ)
 	// 1つのShipmentが複数のコンテナ(TrackingUnit)に分かれる場合がある
-	TrackingUnitIDs []tracking.TrackingUnitID
+	trackingUnitIDs []uuid.UUID
 
 	// 費用情報
-	Cost ShipmentCost
+	cost ShipmentCost
 
 	// 要約ステータス (Derived Status)
 	// 全TrackingUnitの状態から導出される
-	Status ShipmentStatus
+	status ShipmentStatus
+}
+
+// NewShipment: Shipmentのファクトリ関数
+func NewShipment(
+	shipmentNo string,
+	shipperID uuid.UUID,
+	consigneeID uuid.UUID,
+	plan ShipmentPlan,
+) (*Shipment, error) {
+	if shipmentNo == "" {
+		return nil, shared.NewDomainError(shared.ErrInvalidArgument, "shipmentNo is required")
+	}
+	if shipperID == uuid.Nil {
+		return nil, shared.NewDomainError(shared.ErrInvalidArgument, "shipperID is required")
+	}
+	if consigneeID == uuid.Nil {
+		return nil, shared.NewDomainError(shared.ErrInvalidArgument, "consigneeID is required")
+	}
+
+	now := time.Now()
+	id := uuid.New()
+	s := &Shipment{
+		ID:              id,
+		ShipmentNo:      shipmentNo,
+		ShipperID:       shipperID,
+		ConsigneeID:     consigneeID,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+		Plan:            plan,
+		trackingUnitIDs: make([]uuid.UUID, 0),
+		status:          StatusPlanned,
+	}
+	s.RecordEvent(NewShipmentCreated(id))
+	return s, nil
+}
+
+// Status: ステータスのgetter
+func (s *Shipment) Status() ShipmentStatus {
+	return s.status
+}
+
+// Cost: 費用情報のgetter
+func (s *Shipment) Cost() ShipmentCost {
+	return s.cost
+}
+
+// TrackingUnitIDs: TrackingUnit IDsのgetter（コピーを返却）
+func (s *Shipment) TrackingUnitIDs() []uuid.UUID {
+	result := make([]uuid.UUID, len(s.trackingUnitIDs))
+	copy(result, s.trackingUnitIDs)
+	return result
 }
 
 // ==========================================
@@ -139,40 +192,44 @@ type ShipmentCost struct {
 // ==========================================
 
 // AddTrackingUnitID: TrackingUnit IDを追加
-func (s *Shipment) AddTrackingUnitID(trackingUnitID tracking.TrackingUnitID) {
+func (s *Shipment) AddTrackingUnitID(trackingUnitID uuid.UUID) {
 	// 重複チェック
-	for _, id := range s.TrackingUnitIDs {
+	for _, id := range s.trackingUnitIDs {
 		if id == trackingUnitID {
 			return
 		}
 	}
-	s.TrackingUnitIDs = append(s.TrackingUnitIDs, trackingUnitID)
+	s.trackingUnitIDs = append(s.trackingUnitIDs, trackingUnitID)
 	s.UpdatedAt = time.Now()
 }
 
 // UpdateShipmentStatus: ステータスを更新（ドメインサービスから呼ばれる）
-func (s *Shipment) UpdateShipmentStatus(status ShipmentStatus) {
-	s.Status = status
-	s.UpdatedAt = time.Now()
+func (s *Shipment) UpdateShipmentStatus(newStatus ShipmentStatus) {
+	if s.status != newStatus {
+		oldStatus := s.status
+		s.status = newStatus
+		s.UpdatedAt = time.Now()
+		s.RecordEvent(NewShipmentStatusChanged(s.ID, oldStatus, newStatus))
+	}
 }
 
 // SetEstimatedCost: 見積費用を設定
-func (s *Shipment) SetEstimatedCost(cost EstimatedCost) {
-	s.Cost.EstimatedCost = &cost
+func (s *Shipment) SetEstimatedCost(c EstimatedCost) {
+	s.cost.EstimatedCost = &c
 	s.UpdatedAt = time.Now()
 }
 
 // SetEstimatedActualCost: 想定実費用を設定
-func (s *Shipment) SetEstimatedActualCost(cost EstimatedActualCost) {
-	s.Cost.EstimatedActualCost = &cost
+func (s *Shipment) SetEstimatedActualCost(c EstimatedActualCost) {
+	s.cost.EstimatedActualCost = &c
 	s.UpdatedAt = time.Now()
 }
 
 // SetActualCost: 実請求額を設定して確定
-func (s *Shipment) SetActualCost(cost ActualCost) {
-	s.Cost.ActualCost = &cost
-	s.Cost.IsFinalized = true
+func (s *Shipment) SetActualCost(c ActualCost) {
+	s.cost.ActualCost = &c
+	s.cost.IsFinalized = true
 	now := time.Now()
-	s.Cost.FinalizedAt = &now
+	s.cost.FinalizedAt = &now
 	s.UpdatedAt = now
 }
