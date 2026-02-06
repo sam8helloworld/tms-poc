@@ -1,5 +1,7 @@
 package shared
 
+import "github.com/shopspring/decimal"
+
 type TransportMode string
 
 const (
@@ -41,4 +43,22 @@ func (lt LocationType) ValidForMode(mode TransportMode) bool {
 	default:
 		return false
 	}
+}
+
+// TrackingStatus: トラッキングステータス
+type TrackingStatus string
+
+const (
+	StatusBooked    TrackingStatus = "BOOKED"
+	StatusInTransit TrackingStatus = "IN_TRANSIT"
+	StatusException TrackingStatus = "EXCEPTION" // 遅延・トラブル
+	StatusArrived   TrackingStatus = "ARRIVED"
+)
+
+// Decimal: decimal.Decimal のエイリアス
+type Decimal = decimal.Decimal
+
+// NewDecimal: decimal.Decimal の生成ヘルパー
+func NewDecimal(value int64) Decimal {
+	return decimal.NewFromInt(value)
 }
