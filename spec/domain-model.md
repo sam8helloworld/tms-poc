@@ -2,6 +2,9 @@
 
 ## DDD Layered Architecture
 
+このドメインモデルは、国際物流SCMプラットフォームのコア設計を表現しています。
+商流（Shipment）と実行（TrackingUnit）を分離し、各時点での費用算出とGap分析を可能にします。
+
 ```mermaid
 classDiagram
     %% ============================================
@@ -120,6 +123,88 @@ classDiagram
     }
 
     %% ============================================
+    %% Shipment (出荷案件集約)
+    %% ============================================
+    class Shipment {
+        <<Aggregate Root>>
+        +uuid.UUID ID
+        +string ShipmentNo
+        +uuid.UUID ShipperID
+        +ShipmentPlan Plan
+        +TrackingRef[] Trackings
+        +ShipmentCost Cost
+        +ShipmentStatus Status
+        +UpdateStatus()
+        +AddTrackingRef(TrackingRef)
+        +SetEstimatedCost(EstimatedCost)
+        +SetEstimatedActualCost(EstimatedActualCost)
+    }
+
+    class ShipmentPlan {
+        <<Entity>>
+        +PhysicalRoute PlannedRoute
+        +ShipmentItem[] Items
+        +uuid.UUID ContractID
+        +uuid.UUID TariffID
+        +map TransportRequirements
+        +GetTotalWeight() decimal.Decimal
+        +GetTotalVolume() decimal.Decimal
+        +GetTotalQuantity() decimal.Decimal
+    }
+
+    class ShipmentItem {
+        <<Entity>>
+        +uuid.UUID ID
+        +string Commodity
+        +string HSCode
+        +decimal.Decimal Quantity
+        +decimal.Decimal WeightKG
+        +decimal.Decimal VolumeM3
+        +uuid.UUID* LoadedOnTrackingID
+    }
+
+    class TrackingRef {
+        <<Value Object>>
+        +uuid.UUID TrackingUnitID
+        +string TrackingNo
+        +TrackingStatus LatestStatus
+        +time.Time LastUpdated
+    }
+
+    class ShipmentCost {
+        <<Entity>>
+        +EstimatedCost* EstimatedCost
+        +EstimatedActualCost* EstimatedActualCost
+        +ActualCost* ActualCost
+        +bool IsFinalized
+    }
+
+    class ShipmentStatus {
+        <<enumeration>>
+        PLANNED
+        BOOKED
+        IN_TRANSIT
+        EXCEPTION
+        COMPLETED
+        CANCELLED
+    }
+
+    %% ============================================
+    %% Tracking (追跡集約)
+    %% ============================================
+    class TrackingUnit {
+        <<Aggregate Root>>
+        +uuid.UUID ID
+        +string TrackingNumber
+        +uuid.UUID CarrierID
+        +uuid.UUID[] IncludedShipmentIDs
+        +TrackingSegment[] Segments
+        +TrackingStatus CurrentStatus
+        +UpdateSegmentStatus(uuid.UUID, TrackingEvent)
+        +AddShipmentID(uuid.UUID)
+    }
+
+    %% ============================================
     %% Context (コンテキスト層)
     %% ============================================
     class ShipmentContext {
@@ -177,21 +262,81 @@ classDiagram
     }
 
     %% ============================================
+    %% Cost (費用関連)
+    %% ============================================
+    class EstimatedCost {
+        +uuid.UUID TariffID
+        +CostLineItem[] LineItems
+        +Money TotalAmount
+        +time.Time CalculatedAt
+        +string CalculationBase
+    }
+
+    class EstimatedActualCost {
+        +uuid.UUID ShipmentID
+        +uuid.UUID TariffID
+        +SegmentCost[] SegmentCosts
+        +Money TotalAmount
+        +time.Time CalculatedAt
+        +string CalculationBase
+    }
+
+    class ActualCost {
+        +uuid.UUID InvoiceID
+        +string InvoiceNo
+        +uuid.UUID ProviderID
+        +CostLineItem[] LineItems
+        +Money TotalAmount
+        +time.Time InvoiceDate
+    }
+
+    class SegmentCost {
+        +uuid.UUID SegmentID
+        +int SegmentIndex
+        +uuid.UUID OriginLocationID
+        +uuid.UUID DestLocationID
+        +TransportMode Mode
+        +CostLineItem[] LineItems
+        +Money TotalAmount
+        +SegmentCostStatus CalculationStatus
+    }
+
+    class CostLineItem {
+        +uuid.UUID ID
+        +string ChargeCode
+        +string ChargeName
+        +string Category
+        +Money Amount
+    }
+
+    class CostGapAnalysis {
+        +uuid.UUID ShipmentID
+        +Money EstimatedTotal
+        +Money ActualTotal
+        +Money TotalGap
+        +float64 TotalGapPercentage
+        +CostItemGap[] ItemGaps
+    }
+
+    class CostItemGap {
+        +string ChargeCode
+        +Money EstimatedAmount
+        +Money ActualAmount
+        +Money Gap
+        +float64 GapPercentage
+    }
+
+    %% ============================================
     %% Service (ドメインサービス層)
     %% ============================================
     class FreightEstimator {
         +Estimate(ShipmentContext, Tariff) EstimatedCost, error
     }
 
-    class EstimatedCost {
-        +uuid.UUID TariffID
-        +CalculatedLineItem[] LineItems
-    }
-
-    class CalculatedLineItem {
-        +string ChargeCode
-        +string Category
-        +Money Amount
+    class CostCalculationService {
+        +CalculateEstimatedCost(ShipmentPlan, Tariff) EstimatedCost, error
+        +CalculateEstimatedActualCost(Shipment, TrackingUnit[], Tariff) EstimatedActualCost, error
+        +AnalyzeCostGap(EstimatedActualCost, ActualCost) CostGapAnalysis, error
     }
 
     %% ============================================
@@ -219,6 +364,32 @@ classDiagram
     TariffLineItem --> PricingStrategy : has
     LogisticsProvider ..> ProviderType : uses
 
+    %% Shipment Aggregate
+    Shipment *-- ShipmentPlan : contains
+    Shipment *-- ShipmentCost : contains
+    Shipment o-- TrackingRef : references
+    Shipment ..> ShipmentStatus : uses
+    ShipmentPlan *-- ShipmentItem : contains
+    ShipmentPlan --> PhysicalRoute : has
+    ShipmentItem ..> TrackingUnit : references (LoadedOn)
+    ShipmentCost --> EstimatedCost : has
+    ShipmentCost --> EstimatedActualCost : has
+    ShipmentCost --> ActualCost : has
+    TrackingRef --> TrackingUnit : points to
+
+    %% Tracking Aggregate
+    TrackingUnit --> Shipment : references (IncludedShipmentIDs)
+    TrackingUnit ..> TrackingStatus : uses
+
+    %% Cost Relations
+    EstimatedActualCost o-- SegmentCost : contains
+    SegmentCost o-- CostLineItem : contains
+    EstimatedCost o-- CostLineItem : contains
+    ActualCost o-- CostLineItem : contains
+    CostGapAnalysis o-- CostItemGap : contains
+    CostGapAnalysis --> EstimatedActualCost : analyzes
+    CostGapAnalysis --> ActualCost : analyzes
+
     %% Logic Layer
     LocationService ..|> ServiceScope : implements
     TransportationService ..|> ServiceScope : implements
@@ -234,13 +405,23 @@ classDiagram
     FreightEstimator ..> ShipmentContext : uses
     FreightEstimator ..> Tariff : uses
     FreightEstimator ..> EstimatedCost : produces
-    EstimatedCost o-- CalculatedLineItem : contains
-    CalculatedLineItem ..> Money : uses
+    CostCalculationService ..> ShipmentPlan : uses
+    CostCalculationService ..> Shipment : uses
+    CostCalculationService ..> TrackingUnit : uses
+    CostCalculationService ..> Tariff : uses
+    CostCalculationService ..> EstimatedCost : produces
+    CostCalculationService ..> EstimatedActualCost : produces
+    CostCalculationService ..> CostGapAnalysis : produces
 
     %% Shared Layer
     FlatStrategy ..> Money : uses
     CelExpressionStrategy ..> Money : uses
     CompositeStrategy ..> Money : uses
+    CostLineItem ..> Money : uses
+    SegmentCost ..> Money : uses
+    EstimatedCost ..> Money : uses
+    EstimatedActualCost ..> Money : uses
+    ActualCost ..> Money : uses
 ```
 
 ## レイヤー説明
@@ -250,6 +431,7 @@ classDiagram
 - **DateRange**: 期間を表現（契約有効期限、料金適用期間など）
 - **TransportMode**: 輸送モード（海上、航空、トラック、鉄道）
 - **LocationType**: 拠点種別（港、空港、倉庫など）
+- **TrackingStatus**: トラッキングステータス（BOOKED, IN_TRANSIT, ARRIVED, EXCEPTION）
 
 ### 2. Route Aggregate (ルーティング集約)
 - **Location**: 物理的な拠点（港、倉庫、空港など）
@@ -263,13 +445,46 @@ classDiagram
 - **Tariff**: 料金表（契約に紐づく料金項目の集合）
 - **TariffLineItem**: 個別の料金定義（THC、運賃など）
 
-### 4. Context Layer (コンテキスト層)
-- **ShipmentContext**: 見積計算に必要な全てのコンテキスト情報
+### 4. Shipment Aggregate (出荷案件集約) ★新規
+- **Shipment**: 出荷案件（集約ルート）
+  - 荷主視点での「1つの仕事」を表現
+  - 計画（ShipmentPlan）と実績（TrackingRef）を統合管理
+  - 費用情報（ShipmentCost）を保持
+- **ShipmentPlan**: 計画情報（エンティティ）
+  - 予定ルート、貨物明細、使用料金表を保持
+- **ShipmentItem**: 貨物明細（エンティティ）
+  - 商品、重量、容積などの貨物情報
+  - どのTrackingUnitに積載されているかを参照
+- **TrackingRef**: 追跡参照（値オブジェクト）
+  - TrackingUnitへの軽量な参照
+  - IDと最新ステータスのキャッシュのみ保持
+- **ShipmentCost**: 費用情報（エンティティ）
+  - 見積費用、想定実費用、実請求額を管理
+
+### 5. Tracking Aggregate (追跡集約) ★リファクタリング
+- **TrackingUnit**: 追跡単位（集約ルート）
+  - 物理的な輸送単位（コンテナ1本、トラック1台など）
+  - 旧ShipmentTrackingからリネーム
+  - どのShipmentの荷物が載っているかを逆参照
+  - SeaRates等のAPIからの更新対象
+
+### 6. Context Layer (コンテキスト層)
+- **ShipmentContext**: 計算用DTO（計算インターフェース）
   - 物理ルート情報
   - 貨物情報（数量、重量、容積）
   - カスタム属性
+  - ShipmentPlanやTrackingUnitから変換可能
 
-### 5. Logic Layer (ビジネスロジック層)
+### 7. Cost Layer (費用層) ★新規
+- **EstimatedCost**: 見積費用（計画時点での推定費用）
+- **EstimatedActualCost**: 想定実費用（トラッキング実績ベース）
+- **ActualCost**: 実請求額（外部インボイスデータ）
+- **SegmentCost**: セグメント単位の費用内訳
+- **CostLineItem**: 費用明細行
+- **CostGapAnalysis**: 費用差異分析結果
+- **CostItemGap**: 項目別費用差異
+
+### 8. Logic Layer (ビジネスロジック層)
 - **ServiceScope**: 料金適用範囲を判定するインターフェース
   - LocationService: 場所ベースのサービス（THC、保管など）
   - TransportationService: 輸送ベースのサービス（海上運賃、ドレージなど）
@@ -278,15 +493,54 @@ classDiagram
   - CelExpressionStrategy: CEL式による動的計算
   - CompositeStrategy: 複数戦略の合成（基本運賃+サーチャージなど）
 
-### 6. Service Layer (ドメインサービス層)
+### 9. Service Layer (ドメインサービス層)
 - **FreightEstimator**: 見積計算サービス
-  - ShipmentContextとTariffを受け取り、EstimatedCostを生成
-  - 各TariffLineItemについて適用範囲チェック→金額計算を実行
+  - ShipmentContextとTariffから見積費用を計算
+- **CostCalculationService**: 費用計算サービス ★新規
+  - 計画ベースの見積費用算出
+  - トラッキング実績ベースの想定費用算出（セグメント単位）
+  - 費用差異分析（会計ガバナンス・コンプライアンス維持）
 
 ## 主要な設計パターン
 
-1. **Strategy Pattern**: PricingStrategyによる計算ロジックの分離
-2. **Composite Pattern**: CompositeStrategyによる料金の合成
-3. **Value Object**: Money, DateRange（不変性、等価性）
-4. **Aggregate**: Route集約、Commercial集約による境界明確化
-5. **Domain Service**: FreightEstimatorによる複数集約にまたがるロジック
+1. **Aggregate分離**: ShipmentとTrackingUnitを独立した集約として分離
+   - 更新頻度の違い（計画 vs 実績）に対応
+   - ライフサイクルの違いを明確化
+2. **Strategy Pattern**: PricingStrategyによる計算ロジックの分離
+3. **Composite Pattern**: CompositeStrategyによる料金の合成
+4. **Value Object**: Money, DateRange, TrackingRef（不変性、等価性）
+5. **Aggregate**: Route集約、Commercial集約、Shipment集約、Tracking集約
+6. **Domain Service**: 複数集約にまたがるロジック
+   - FreightEstimator: 見積計算
+   - CostCalculationService: 実績ベース費用計算とGap分析
+7. **DTO Pattern**: ShipmentContext（計算用の軽量なインターフェース）
+
+## 費用計算の流れ
+
+### 1. 計画時点（見積）
+```
+ShipmentPlan → CostCalculationService → EstimatedCost
+                ↓ uses
+              Tariff
+```
+
+### 2. トラッキング時点（想定実費用）
+```
+Shipment + TrackingUnit[] → CostCalculationService → EstimatedActualCost
+                              ↓ uses                    ↓ contains
+                            Tariff                   SegmentCost[]
+```
+
+### 3. 請求時点（Gap分析）
+```
+EstimatedActualCost + ActualCost → CostCalculationService → CostGapAnalysis
+                                                               ↓ contains
+                                                            CostItemGap[]
+```
+
+## セグメント単位の費用計算ステータス
+
+- **COMPLETED**: 完了済み（実績ベースで確定）
+- **IN_PROGRESS**: 進行中（按分計算による推定）
+- **PLANNED**: 未着手（計画ベースの推定）
+- **NOT_APPLICABLE**: 適用対象外
