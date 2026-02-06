@@ -13,6 +13,16 @@ classDiagram
     class Money {
         +decimal.Decimal Amount
         +string Currency
+        +NewMoney(amount, currency) Money, error
+        +ZeroMoney(currency) Money
+        +Add(Money) Money, error
+        +Sub(Money) Money, error
+        +Multiply(decimal.Decimal) Money
+        +IsZero() bool
+        +IsPositive() bool
+        +IsNegative() bool
+        +GreaterThan(Money) bool
+        +Equals(Money) bool
     }
 
     class DateRange {
@@ -38,6 +48,52 @@ classDiagram
         DOOR
         BORDER
         +ValidForMode(TransportMode) bool
+    }
+
+    class DomainErrorCode {
+        <<enumeration>>
+        INVALID_ARGUMENT
+        NOT_FOUND
+        INVALID_STATE
+        BUSINESS_RULE_VIOLATION
+        CURRENCY_MISMATCH
+    }
+
+    class DomainError {
+        +DomainErrorCode Code
+        +string Message
+        +map Details
+        +error Cause
+        +Error() string
+        +Unwrap() error
+        +NewDomainError(code, message) DomainError
+        +WithDetail(key, value) DomainError
+        +WithCause(error) DomainError
+    }
+
+    class DomainEvent {
+        <<interface>>
+        +EventID() uuid.UUID
+        +EventType() string
+        +OccurredAt() time.Time
+        +AggregateID() uuid.UUID
+        +AggregateType() string
+    }
+
+    class BaseEvent {
+        +uuid.UUID ID
+        +string Type
+        +time.Time Occurred
+        +uuid.UUID AggID
+        +string AggType
+        +NewBaseEvent(eventType, aggregateID, aggregateType) BaseEvent
+    }
+
+    class EventRecorder {
+        -DomainEvent[] events
+        +RecordEvent(DomainEvent)
+        +PullEvents() DomainEvent[]
+        +HasEvents() bool
     }
 
     %% ============================================
@@ -98,12 +154,37 @@ classDiagram
         +ProviderType Type
     }
 
+    class ContractStatus {
+        <<enumeration>>
+        DRAFT
+        CONTRACTED
+        EXPIRED
+        CANCELLED
+    }
+
     class ServiceContract {
+        <<Aggregate Root>>
+        +EventRecorder
         +uuid.UUID ID
         +uuid.UUID ProviderID
         +uuid.UUID ShipperID
+        -ContractStatus status
         +DateRange ValidPeriod
-        +Tariff[] Tariffs
+        -Tariff[] tariffs
+        +time.Time CreatedAt
+        +time.Time UpdatedAt
+        +NewServiceContract(providerID, shipperID, from, to) ServiceContract, error
+        +Status() ContractStatus
+        +Tariffs() Tariff[]
+        +TariffCount() int
+        +AddOrUpdateTariff(Tariff) error
+        +RemoveTariff(uuid.UUID) error
+        +MarkAsContracted() error
+        +MarkAsExpired() error
+        +MarkAsCancelled() error
+        +Validate() error
+        +IsActive() bool
+        +IsDraft() bool
     }
 
     class Tariff {
@@ -112,6 +193,10 @@ classDiagram
         +string Name
         +DateRange EffectiveDate
         +TariffLineItem[] LineItems
+        +NewTariff(contractID, name, from, to) Tariff, error
+        +AddLineItem(TariffLineItem) error
+        +Validate() error
+        +IsEffectiveAt(time.Time) bool
     }
 
     class TariffLineItem {
@@ -122,22 +207,45 @@ classDiagram
         +PricingStrategy Logic
     }
 
+    class ContractStatusChanged {
+        <<Domain Event>>
+        +BaseEvent
+        +ContractStatus OldStatus
+        +ContractStatus NewStatus
+    }
+
+    class TariffRegistered {
+        <<Domain Event>>
+        +BaseEvent
+        +uuid.UUID TariffID
+        +string TariffName
+        +uuid.UUID ContractID
+        +bool IsUpdate
+    }
+
     %% ============================================
     %% Shipment (出荷案件集約)
     %% ============================================
     class Shipment {
         <<Aggregate Root>>
+        +EventRecorder
         +uuid.UUID ID
         +string ShipmentNo
         +uuid.UUID ShipperID
+        +uuid.UUID ConsigneeID
         +ShipmentPlan Plan
-        +uuid.UUID[] TrackingUnitIDs
-        +ShipmentCost Cost
-        +ShipmentStatus Status
+        -uuid.UUID[] trackingUnitIDs
+        -ShipmentCost cost
+        -ShipmentStatus status
+        +NewShipment(shipmentNo, shipperID, consigneeID, plan) Shipment, error
+        +Status() ShipmentStatus
+        +Cost() ShipmentCost
+        +TrackingUnitIDs() uuid.UUID[]
         +AddTrackingUnitID(uuid.UUID)
         +UpdateShipmentStatus(ShipmentStatus)
         +SetEstimatedCost(EstimatedCost)
         +SetEstimatedActualCost(EstimatedActualCost)
+        +SetActualCost(ActualCost)
     }
 
     class ShipmentPlan {
@@ -181,6 +289,18 @@ classDiagram
         CANCELLED
     }
 
+    class ShipmentCreated {
+        <<Domain Event>>
+        +BaseEvent
+    }
+
+    class ShipmentStatusChanged {
+        <<Domain Event>>
+        +BaseEvent
+        +ShipmentStatus OldStatus
+        +ShipmentStatus NewStatus
+    }
+
     %% ============================================
     %% Route Deviation (ルート逸脱分析)
     %% ============================================
@@ -215,12 +335,16 @@ classDiagram
     %% ============================================
     class TrackingUnit {
         <<Aggregate Root>>
+        +EventRecorder
         +uuid.UUID ID
-        +string TrackingNumber
+        +TrackingNumber TrackingNumber
         +uuid.UUID CarrierID
-        +TrackingSegment[] Segments
-        +TrackingStatus CurrentStatus
-        +UpdateSegmentStatus(uuid.UUID, TrackingEvent)
+        -TrackingSegment[] segments
+        -TrackingStatus currentStatus
+        +NewTrackingUnit(trackingNumber, carrierID, segments) TrackingUnit, error
+        +CurrentStatus() TrackingStatus
+        +Segments() TrackingSegment[]
+        +UpdateSegmentStatus(uuid.UUID, TrackingEvent) error
     }
 
     class TrackingSegment {
@@ -258,8 +382,15 @@ classDiagram
         IOT_DEVICE
     }
 
+    class TrackingEventReceived {
+        <<Domain Event>>
+        +BaseEvent
+        +uuid.UUID SegmentID
+        +string EventCode
+    }
+
     %% ============================================
-    %% Context (コンテキスト層)
+    %% CalcParam (計算パラメータ層)
     %% ============================================
     class ShipmentContext {
         +PhysicalRoute Route
@@ -397,9 +528,101 @@ classDiagram
         +UpdateStatus(Shipment, TrackingUnit[])
     }
 
+    class RouteDeviationService {
+        +AnalyzeDeviation(Shipment, TrackingUnit[]) RouteDeviationAnalysis
+    }
+
+    %% ============================================
+    %% UseCase (アプリケーション層)
+    %% ============================================
+    class RegisterTariffUseCase {
+        +Execute(RegisterTariffInput) RegisterTariffOutput, error
+    }
+
+    class RegisterTariffInput {
+        +io.Reader FileReader
+        +string FileFormat
+        +string FileName
+        +uuid.UUID* ContractID
+        +uuid.UUID ProviderID
+        +uuid.UUID ShipperID
+        +time.Time* ContractValidFrom
+        +time.Time* ContractValidTo
+        +uuid.UUID UploadedBy
+    }
+
+    class RegisterTariffOutput {
+        +uuid.UUID ContractID
+        +string ContractStatus
+        +uuid.UUID TariffID
+        +string TariffName
+        +time.Time EffectiveFrom
+        +time.Time EffectiveTo
+        +int LineItemCount
+        +bool IsNewContract
+        +bool IsUpdatedTariff
+        +int TotalTariffCount
+    }
+
+    %% ============================================
+    %% Adapter (インフラ層インターフェース)
+    %% ============================================
+    class TariffParser {
+        <<interface>>
+        +Parse(io.Reader) ParsedTariffData, error
+        +SupportedFormats() string[]
+    }
+
+    class ParsedTariffData {
+        +string TariffName
+        +time.Time EffectiveFrom
+        +time.Time EffectiveTo
+        +ParsedLineItem[] LineItems
+    }
+
+    class ParsedLineItem {
+        +string ChargeCode
+        +string ChargeName
+        +string Category
+        +string ServiceScopeType
+        +map ServiceScopeAttrs
+        +string PricingType
+        +map PricingAttrs
+    }
+
+    class TariffParserFactory {
+        <<interface>>
+        +GetParser(string) TariffParser, error
+    }
+
+    %% ============================================
+    %% Repository (リポジトリ層インターフェース)
+    %% ============================================
+    class ServiceContractRepository {
+        <<interface>>
+        +Save(ServiceContract) error
+        +FindByID(uuid.UUID) ServiceContract, error
+        +FindByProviderAndShipper(uuid.UUID, uuid.UUID) ServiceContract[], error
+        +FindDraftByProviderAndShipper(uuid.UUID, uuid.UUID) ServiceContract[], error
+        +FindActiveByProviderAndShipper(uuid.UUID, uuid.UUID, time.Time) ServiceContract[], error
+        +Delete(uuid.UUID) error
+    }
+
+    class LogisticsProviderRepository {
+        <<interface>>
+        +FindByID(uuid.UUID) LogisticsProvider, error
+        +FindByName(string) LogisticsProvider[], error
+        +Save(LogisticsProvider) error
+    }
+
     %% ============================================
     %% Relationships (関連)
     %% ============================================
+
+    %% Shared Layer
+    DomainError ..> DomainErrorCode : uses
+    BaseEvent ..|> DomainEvent : implements
+    EventRecorder o-- DomainEvent : records
 
     %% Route Aggregate
     PhysicalRoute o-- RouteSegment : contains
@@ -414,29 +637,42 @@ classDiagram
 
     %% Commercial Aggregate
     ServiceContract --> LogisticsProvider : provider
-    ServiceContract o-- Tariff : contains
+    ServiceContract *-- Tariff : contains (aggregate)
+    ServiceContract ..> ContractStatus : uses
     ServiceContract ..> DateRange : uses
+    ServiceContract *-- EventRecorder : embeds
+    ServiceContract ..> ContractStatusChanged : emits
+    ServiceContract ..> TariffRegistered : emits
     Tariff o-- TariffLineItem : contains
     Tariff ..> DateRange : uses
     TariffLineItem --> ServiceScope : has
     TariffLineItem --> PricingStrategy : has
     LogisticsProvider ..> ProviderType : uses
+    ContractStatusChanged --> BaseEvent : extends
+    TariffRegistered --> BaseEvent : extends
 
     %% Shipment Aggregate
     Shipment *-- ShipmentPlan : contains
     Shipment *-- ShipmentCost : contains
     Shipment --> TrackingUnit : references (TrackingUnitIDs)
     Shipment ..> ShipmentStatus : uses
+    Shipment *-- EventRecorder : embeds
+    Shipment ..> ShipmentCreated : emits
+    Shipment ..> ShipmentStatusChanged : emits
     ShipmentPlan *-- ShipmentItem : contains
     ShipmentPlan --> PhysicalRoute : has
     ShipmentItem ..> TrackingUnit : references (LoadedOn)
     ShipmentCost --> EstimatedCost : has
     ShipmentCost --> EstimatedActualCost : has
     ShipmentCost --> ActualCost : has
+    ShipmentCreated --> BaseEvent : extends
+    ShipmentStatusChanged --> BaseEvent : extends
 
     %% Tracking Aggregate
     TrackingUnit *-- TrackingSegment : contains
     TrackingUnit ..> TrackingStatus : uses
+    TrackingUnit *-- EventRecorder : embeds
+    TrackingUnit ..> TrackingEventReceived : emits
     TrackingSegment *-- TrackingEvent : contains
     TrackingSegment --> Location : actualOrigin
     TrackingSegment --> Location : actualDestination
@@ -444,6 +680,7 @@ classDiagram
     TrackingSegment ..> TrackingSourceType : uses
     TrackingSegment ..> TrackingStatus : uses
     TrackingEvent ..> TrackingSourceType : uses
+    TrackingEventReceived --> BaseEvent : extends
 
     %% Cost Relations
     EstimatedActualCost o-- SegmentCost : contains
@@ -462,7 +699,7 @@ classDiagram
     CompositeStrategy ..|> PricingStrategy : implements
     CompositeStrategy o-- PricingStrategy : contains
 
-    %% Context Layer
+    %% CalcParam Layer
     ShipmentContext --> PhysicalRoute : has
 
     %% Service Layer
@@ -478,9 +715,11 @@ classDiagram
     CostCalculationService ..> CostGapAnalysis : produces
     ShipmentStatusUpdater ..> Shipment : updates
     ShipmentStatusUpdater ..> TrackingUnit : uses
+    RouteDeviationService ..> Shipment : uses
+    RouteDeviationService ..> TrackingUnit : uses
+    RouteDeviationService ..> RouteDeviationAnalysis : produces
 
     %% Route Deviation Analysis
-    Shipment ..> RouteDeviationAnalysis : produces
     RouteDeviationAnalysis o-- SegmentMapping : contains
     RouteDeviationAnalysis ..> DeviationType : uses
     SegmentMapping --> RouteSegment : references planned
@@ -496,16 +735,35 @@ classDiagram
     EstimatedCost ..> Money : uses
     EstimatedActualCost ..> Money : uses
     ActualCost ..> Money : uses
+
+    %% UseCase Layer
+    RegisterTariffUseCase ..> RegisterTariffInput : uses
+    RegisterTariffUseCase ..> RegisterTariffOutput : produces
+    RegisterTariffUseCase ..> TariffParserFactory : uses
+    RegisterTariffUseCase ..> ServiceContractRepository : uses
+    RegisterTariffUseCase ..> Tariff : creates
+
+    %% Adapter Layer
+    TariffParser ..> ParsedTariffData : produces
+    ParsedTariffData o-- ParsedLineItem : contains
+    TariffParserFactory ..> TariffParser : provides
+
+    %% Repository Layer
+    ServiceContractRepository ..> ServiceContract : manages
+    LogisticsProviderRepository ..> LogisticsProvider : manages
 ```
 
 ## レイヤー説明
 
 ### 1. Shared Layer (共通値オブジェクト層)
-- **Money**: 金額と通貨を表現
+- **Money**: 金額と通貨を表現。算術メソッド（Add, Sub, Multiply）と比較メソッド（IsZero, IsPositive, GreaterThan等）を提供
 - **DateRange**: 期間を表現（契約有効期限、料金適用期間など）
 - **TransportMode**: 輸送モード（海上、航空、トラック、鉄道）
 - **LocationType**: 拠点種別（港、空港、倉庫など）
 - **TrackingStatus**: トラッキングステータス（BOOKED, IN_TRANSIT, ARRIVED, EXCEPTION）
+- **DomainError**: 構造化されたドメインエラー（コード、メッセージ、詳細、原因）
+- **DomainEvent / BaseEvent**: ドメインイベントインターフェースと基底実装
+- **EventRecorder**: 集約ルートに埋め込んでイベントを記録・取得する仕組み
 
 ### 2. Route Aggregate (ルーティング集約)
 - **Location**: 物理的な拠点（港、倉庫、空港など）
@@ -514,50 +772,42 @@ classDiagram
 - **RouteSegment**: A地点からB地点への移動を表す最小単位
 
 ### 3. Commercial Aggregate (商取引集約)
+- **ServiceContract**: 契約（集約ルート）
+  - 入札プロセスにおいて物流企業から提示された料金情報を管理
+  - ContractStatus: DRAFT（入札段階）→ CONTRACTED（契約成立）→ EXPIRED/CANCELLED
+  - `status`, `tariffs` フィールドはprivateでgetter経由でアクセス
+  - EventRecorderを埋め込み、ContractStatusChanged / TariffRegistered イベントを発行
 - **LogisticsProvider**: 物流企業（キャリア、フォワーダーなど）
-- **ServiceContract**: 契約（プロバイダーと荷主間の合意）
 - **Tariff**: 料金表（契約に紐づく料金項目の集合）
+  - ServiceContract集約内のエンティティ
 - **TariffLineItem**: 個別の料金定義（THC、運賃など）
 
-### 4. Shipment Aggregate (出荷案件集約) ★新規
+### 4. Shipment Aggregate (出荷案件集約)
 - **Shipment**: 出荷案件（集約ルート）
   - 荷主視点での「1つの仕事」を表現
-  - 計画（ShipmentPlan）と実績（TrackingUnitIDs）を統合管理
-  - 費用情報（ShipmentCost）を保持
-  - TrackingUnitへの参照はIDのみ保持（集約境界の明確化）
+  - `status`, `cost`, `trackingUnitIDs` フィールドはprivateでgetter経由でアクセス
+  - `NewShipment()` ファクトリ関数でバリデーション付き生成
+  - EventRecorderを埋め込み、ShipmentCreated / ShipmentStatusChanged イベントを発行
+  - ルート逸脱分析はRouteDeviationServiceに委譲
 - **ShipmentPlan**: 計画情報（エンティティ）
-  - 予定ルート、貨物明細、使用料金表を保持
 - **ShipmentItem**: 貨物明細（エンティティ）
-  - 商品、重量、容積などの貨物情報
-  - どのTrackingUnitに積載されているかを参照
 - **ShipmentCost**: 費用情報（エンティティ）
-  - 見積費用、想定実費用、実請求額を管理
 
-### 5. Tracking Aggregate (追跡集約) ★リファクタリング
+### 5. Tracking Aggregate (追跡集約)
 - **TrackingUnit**: 追跡単位（集約ルート）
-  - 物理的な輸送単位（コンテナ1本、トラック1台など）
-  - Master B/L、Container No、AWB などの物理的な追跡番号を持つ
-  - 旧ShipmentTrackingからリネーム
-  - SeaRates等のAPIからの更新対象
-  - 混載（LCL）の場合、複数のShipmentから同じTrackingUnitが参照される
-  - **計画への参照を持たない**：純粋な実績記録にフォーカス
+  - `currentStatus`, `segments` フィールドはprivateでgetter経由でアクセス
+  - `NewTrackingUnit()` ファクトリ関数でバリデーション付き生成
+  - EventRecorderを埋め込み、TrackingEventReceived イベントを発行
+  - 計画への参照を持たない：純粋な実績記録にフォーカス
 - **TrackingSegment**: 実際に発生した移動区間（エンティティ）
-  - 実際の発着地（ActualOriginLocationID, ActualDestLocationID）
-  - 実績時刻（ActualDeparture, ActualArrival）
-  - 追跡イベントの集合
-  - 計画セグメントへの参照は持たない（対応関係はShipmentで管理）
 - **TrackingEvent**: 追跡イベント（値オブジェクト）
-  - タイムスタンプ、イベントコード、位置情報
-  - データソース（API、手動入力、EDIなど）
 
-### 6. Context Layer (コンテキスト層)
+### 6. CalcParam Layer (計算パラメータ層)
 - **ShipmentContext**: 計算用DTO（計算インターフェース）
-  - 物理ルート情報
-  - 貨物情報（数量、重量、容積）
-  - カスタム属性
-  - ShipmentPlanやTrackingUnitから変換可能
+  - パッケージ: `calcparam`（Go stdlib `context` との名前衝突を回避）
+  - 物理ルート情報、貨物情報（数量、重量、容積）、カスタム属性
 
-### 7. Cost Layer (費用層) ★新規
+### 7. Cost Layer (費用層)
 - **EstimatedCost**: 見積費用（計画時点での推定費用）
 - **EstimatedActualCost**: 想定実費用（トラッキング実績ベース）
 - **ActualCost**: 実請求額（外部インボイスデータ）
@@ -571,54 +821,79 @@ classDiagram
   - LocationService: 場所ベースのサービス（THC、保管など）
   - TransportationService: 輸送ベースのサービス（海上運賃、ドレージなど）
 - **PricingStrategy**: 料金計算ロジックのインターフェース
-  - FlatStrategy: 定額料金
+  - FlatStrategy: 定額料金（Money.Multiply使用）
   - CelExpressionStrategy: CEL式による動的計算
-  - CompositeStrategy: 複数戦略の合成（基本運賃+サーチャージなど）
+  - CompositeStrategy: 複数戦略の合成（Money.Add使用、エラーハンドリング付き）
 
 ### 9. Service Layer (ドメインサービス層)
 - **FreightEstimator**: 見積計算サービス
   - ShipmentContextとTariffから見積費用を計算
-- **CostCalculationService**: 費用計算サービス ★新規
+- **CostCalculationService**: 費用計算サービス
   - 計画ベースの見積費用算出
   - トラッキング実績ベースの想定費用算出（セグメント単位）
-  - 費用差異分析（会計ガバナンス・コンプライアンス維持）
-- **ShipmentStatusUpdater**: ステータス更新サービス ★新規
+  - 費用差異分析（Money算術メソッド使用）
+- **ShipmentStatusUpdater**: ステータス更新サービス
   - TrackingUnitの状態からShipmentのステータスを計算・更新
-  - 集約境界を越えたステータス同期を管理
+  - serviceパッケージに配置（集約境界を越えたステータス同期）
+- **RouteDeviationService**: ルート逸脱分析サービス
+  - Shipmentの計画とTrackingUnitの実績を突合
+  - Shipment集約から分離されたドメインサービス
 
-### 10. Route Deviation Analysis (ルート逸脱分析) ★新規
+### 10. Route Deviation Analysis (ルート逸脱分析)
 - **RouteDeviationAnalysis**: ルート逸脱分析結果（値オブジェクト）
-  - 計画と実績の突合結果
-  - 逸脱の有無、セグメントマッピング、欠落・追加セグメント
 - **SegmentMapping**: 計画セグメントと実績セグメントの対応関係
-  - どの計画セグメントにどの実績セグメントが対応するか
-  - 一致状況（MATCHED, LOCATION_CHANGED, SKIPPED, ADDED）
-- **Shipment.AnalyzeRouteDeviation()**: ドメインメソッド
-  - TrackingUnitの実績を計画と突合
-  - TrackingUnitは計画を知らないため、Shipmentが統合の責任を持つ
+- **RouteDeviationService.AnalyzeDeviation()**: ドメインサービスメソッド
+
+### 11. UseCase Layer (アプリケーション層)
+- **RegisterTariffUseCase**: 料金表登録ユースケース
+  - contract.Status() / contract.TariffCount() / contract.Tariffs() getter使用
+
+### 12. Adapter Layer (インフラ層インターフェース)
+- **TariffParser**: 料金表ファイル解析インターフェース
+- **ParsedTariffData**: 解析された料金表データ（中間データ構造）
+- **TariffParserFactory**: パーサーファクトリー
+
+### 13. Repository Layer (リポジトリ層インターフェース)
+- **ServiceContractRepository**: ServiceContract集約のリポジトリ
+- **LogisticsProviderRepository**: LogisticsProvider集約のリポジトリ
 
 ## 主要な設計パターン
 
-1. **Aggregate分離**: ShipmentとTrackingUnitを独立した集約として分離
-   - 更新頻度の違い（計画 vs 実績）に対応
-   - ライフサイクルの違いを明確化
+1. **Aggregate分離と境界**:
+   - ShipmentとTrackingUnitを独立した集約として分離
+   - ServiceContractを集約ルートとしてTariffを管理
    - 集約間の参照はIDのみ（疎結合）
-2. **関心の分離**: 計画と実績の明確な分離 ★重要
+2. **カプセル化**:
+   - 集約ルートの重要フィールドはprivate（小文字）
+   - getter メソッドで安全にアクセス（コレクションはコピー返却）
+   - ファクトリ関数でバリデーション付き生成
+3. **ドメインイベント**:
+   - EventRecorderを集約ルートに埋め込み
+   - 状態変更時にイベントを発行（ContractStatusChanged, ShipmentCreated等）
+   - PullEvents()で後続処理に引き渡し
+4. **構造化エラー**:
+   - DomainError型でコード、メッセージ、詳細、原因を保持
+   - errors.New()ではなくNewDomainError()を使用
+   - IsCode()ヘルパーでエラー種別判定
+5. **関心の分離**: 計画と実績の明確な分離
    - **Shipment**: 計画（PlannedRoute）の管理者
    - **TrackingUnit**: 実績の記録者（計画への参照を持たない）
-   - **計画と実績の統合**: Shipmentのドメインメソッドが責任を持つ
-   - TrackingUnitは他のコンテキストでも再利用可能（計画非依存）
-3. **Strategy Pattern**: PricingStrategyによる計算ロジックの分離
-4. **Composite Pattern**: CompositeStrategyによる料金の合成
-5. **Value Object**: Money, DateRange（不変性、等価性）
-6. **Aggregate**: Route集約、Commercial集約、Shipment集約、Tracking集約
-7. **Domain Service**: 複数集約にまたがるロジック
-   - FreightEstimator: 見積計算
-   - CostCalculationService: 実績ベース費用計算とGap分析
-   - ShipmentStatusUpdater: 集約を越えたステータス更新
-8. **DTO Pattern**: ShipmentContext（計算用の軽量なインターフェース）
-9. **Domain Method**: 集約内での計算ロジック
-   - Shipment.AnalyzeRouteDeviation(): 計画と実績の突合・逸脱分析
+   - **RouteDeviationService**: 計画と実績の突合（ドメインサービス）
+   - **ShipmentStatusUpdater**: 集約を越えたステータス同期（ドメインサービス）
+6. **Strategy Pattern**: PricingStrategyによる計算ロジックの分離
+7. **Composite Pattern**: CompositeStrategyによる料金の合成
+8. **Value Object**: Money（算術メソッド付き）, DateRange（不変性、等価性）
+9. **Domain Service**: 複数集約にまたがるロジック
+   - FreightEstimator, CostCalculationService, ShipmentStatusUpdater, RouteDeviationService
+10. **Factory Pattern**:
+    - NewServiceContract(), NewShipment(), NewTrackingUnit(): バリデーション付き生成
+    - NewTariff(): 不変条件を保証したTariff生成
+    - TariffParserFactory: ファイル形式に応じたパーサー選択
+11. **UseCase Pattern (Application Service)**:
+    - RegisterTariffUseCase: getter経由でのprivateフィールドアクセス
+12. **Adapter Pattern (Hexagonal Architecture)**: TariffParser
+13. **Repository Pattern**: ドメイン層ではインターフェースのみ定義
+14. **State Pattern**: ContractStatus, ShipmentStatus のライフサイクル管理
 
 ## 費用計算の流れ
 
