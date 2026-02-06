@@ -3,14 +3,14 @@ package service
 import (
 	"github.com/google/uuid"
 	"github.com/sam8helloworld/tms-poc/internal/domain/commercial"
-	"github.com/sam8helloworld/tms-poc/internal/domain/context"
+	"github.com/sam8helloworld/tms-poc/internal/domain/calcparam"
 	"github.com/sam8helloworld/tms-poc/internal/domain/shared"
 )
 
 // FreightEstimator: 見積もり計算サービス (Domain Service)
 type FreightEstimator struct{}
 
-func (fe *FreightEstimator) Estimate(ctx context.ShipmentContext, tariff *commercial.Tariff) (EstimatedCost, error) {
+func (fe *FreightEstimator) Estimate(ctx calcparam.ShipmentContext, tariff *commercial.Tariff) (EstimatedCost, error) {
 	var lines []CalculatedLineItem
 
 	// タリフ内の全LineItemを走査
