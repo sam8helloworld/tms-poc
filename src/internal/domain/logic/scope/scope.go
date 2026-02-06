@@ -1,8 +1,8 @@
 package scope
 
 import (
-	"github.com/google/uuid"
 	"github.com/sam8helloworld/tms-poc/internal/domain/context"
+	"github.com/sam8helloworld/tms-poc/internal/domain/route"
 	"github.com/sam8helloworld/tms-poc/internal/domain/shared"
 )
 
@@ -13,7 +13,7 @@ type ServiceScope interface {
 
 // LocationService: 場所に対するサービス (THC, 保管, 通関)
 type LocationService struct {
-	LocationID  uuid.UUID
+	LocationID  route.LocationID
 	ServiceType string // HANDLING, STORAGE
 }
 
@@ -32,8 +32,8 @@ func (s LocationService) IsApplicable(ctx context.ShipmentContext) bool {
 
 // TransportationService: 移動に対するサービス (海上運賃, ドレージ)
 type TransportationService struct {
-	OriginID      uuid.UUID
-	DestinationID uuid.UUID
+	OriginID      route.LocationID
+	DestinationID route.LocationID
 	Mode          shared.TransportMode
 }
 

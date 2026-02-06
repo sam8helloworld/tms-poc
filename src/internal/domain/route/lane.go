@@ -6,9 +6,11 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+type LaneID uuid.UUID
+
 // Lane: 2点間の物理的な輸送路
 type Lane struct {
-	ID            uuid.UUID
+	ID            LaneID
 	OriginID      uuid.UUID
 	DestinationID uuid.UUID
 	Mode          shared.TransportMode
