@@ -182,6 +182,35 @@ classDiagram
     }
 
     %% ============================================
+    %% Route Deviation (ルート逸脱分析)
+    %% ============================================
+    class RouteDeviationAnalysis {
+        <<Value Object>>
+        +uuid.UUID ShipmentID
+        +bool HasDeviation
+        +string DeviationReason
+        +SegmentMapping[] SegmentMappings
+        +RouteSegmentID[] MissingSegments
+        +uuid.UUID[] ExtraSegments
+    }
+
+    class SegmentMapping {
+        <<Value Object>>
+        +RouteSegmentID PlannedSegmentID
+        +uuid.UUID* ActualSegmentID
+        +bool IsMatched
+        +DeviationType DeviationType
+    }
+
+    class DeviationType {
+        <<enumeration>>
+        MATCHED
+        LOCATION_CHANGED
+        SKIPPED
+        ADDED
+    }
+
+    %% ============================================
     %% Tracking (追跡集約)
     %% ============================================
     class TrackingUnit {
@@ -192,6 +221,41 @@ classDiagram
         +TrackingSegment[] Segments
         +TrackingStatus CurrentStatus
         +UpdateSegmentStatus(uuid.UUID, TrackingEvent)
+    }
+
+    class TrackingSegment {
+        <<Entity>>
+        +uuid.UUID ID
+        +uuid.UUID ActualOriginLocationID
+        +uuid.UUID ActualDestLocationID
+        +TransportMode Mode
+        +string CarrierTrackingNumber
+        +TrackingSourceType PrimarySource
+        +TrackingStatus Status
+        +TrackingEvent[] Events
+        +time.Time* ActualDeparture
+        +time.Time* ActualArrival
+        +time.Time* EstimatedArrival
+    }
+
+    class TrackingEvent {
+        <<Value Object>>
+        +uuid.UUID ID
+        +time.Time Timestamp
+        +TrackingSourceType Source
+        +string Code
+        +string Description
+        +string LocationRaw
+        +string RawPayload
+    }
+
+    class TrackingSourceType {
+        <<enumeration>>
+        SEARATES_API
+        MANUAL_INPUT
+        PARTNER_EDI
+        DRIVER_APP
+        IOT_DEVICE
     }
 
     %% ============================================
@@ -371,7 +435,15 @@ classDiagram
     ShipmentCost --> ActualCost : has
 
     %% Tracking Aggregate
+    TrackingUnit *-- TrackingSegment : contains
     TrackingUnit ..> TrackingStatus : uses
+    TrackingSegment *-- TrackingEvent : contains
+    TrackingSegment --> Location : actualOrigin
+    TrackingSegment --> Location : actualDestination
+    TrackingSegment ..> TransportMode : uses
+    TrackingSegment ..> TrackingSourceType : uses
+    TrackingSegment ..> TrackingStatus : uses
+    TrackingEvent ..> TrackingSourceType : uses
 
     %% Cost Relations
     EstimatedActualCost o-- SegmentCost : contains
@@ -406,6 +478,14 @@ classDiagram
     CostCalculationService ..> CostGapAnalysis : produces
     ShipmentStatusUpdater ..> Shipment : updates
     ShipmentStatusUpdater ..> TrackingUnit : uses
+
+    %% Route Deviation Analysis
+    Shipment ..> RouteDeviationAnalysis : produces
+    RouteDeviationAnalysis o-- SegmentMapping : contains
+    RouteDeviationAnalysis ..> DeviationType : uses
+    SegmentMapping --> RouteSegment : references planned
+    SegmentMapping --> TrackingSegment : references actual
+    SegmentMapping ..> DeviationType : uses
 
     %% Shared Layer
     FlatStrategy ..> Money : uses
@@ -460,6 +540,15 @@ classDiagram
   - 旧ShipmentTrackingからリネーム
   - SeaRates等のAPIからの更新対象
   - 混載（LCL）の場合、複数のShipmentから同じTrackingUnitが参照される
+  - **計画への参照を持たない**：純粋な実績記録にフォーカス
+- **TrackingSegment**: 実際に発生した移動区間（エンティティ）
+  - 実際の発着地（ActualOriginLocationID, ActualDestLocationID）
+  - 実績時刻（ActualDeparture, ActualArrival）
+  - 追跡イベントの集合
+  - 計画セグメントへの参照は持たない（対応関係はShipmentで管理）
+- **TrackingEvent**: 追跡イベント（値オブジェクト）
+  - タイムスタンプ、イベントコード、位置情報
+  - データソース（API、手動入力、EDIなど）
 
 ### 6. Context Layer (コンテキスト層)
 - **ShipmentContext**: 計算用DTO（計算インターフェース）
@@ -497,21 +586,39 @@ classDiagram
   - TrackingUnitの状態からShipmentのステータスを計算・更新
   - 集約境界を越えたステータス同期を管理
 
+### 10. Route Deviation Analysis (ルート逸脱分析) ★新規
+- **RouteDeviationAnalysis**: ルート逸脱分析結果（値オブジェクト）
+  - 計画と実績の突合結果
+  - 逸脱の有無、セグメントマッピング、欠落・追加セグメント
+- **SegmentMapping**: 計画セグメントと実績セグメントの対応関係
+  - どの計画セグメントにどの実績セグメントが対応するか
+  - 一致状況（MATCHED, LOCATION_CHANGED, SKIPPED, ADDED）
+- **Shipment.AnalyzeRouteDeviation()**: ドメインメソッド
+  - TrackingUnitの実績を計画と突合
+  - TrackingUnitは計画を知らないため、Shipmentが統合の責任を持つ
+
 ## 主要な設計パターン
 
 1. **Aggregate分離**: ShipmentとTrackingUnitを独立した集約として分離
    - 更新頻度の違い（計画 vs 実績）に対応
    - ライフサイクルの違いを明確化
    - 集約間の参照はIDのみ（疎結合）
-2. **Strategy Pattern**: PricingStrategyによる計算ロジックの分離
-3. **Composite Pattern**: CompositeStrategyによる料金の合成
-4. **Value Object**: Money, DateRange（不変性、等価性）
-5. **Aggregate**: Route集約、Commercial集約、Shipment集約、Tracking集約
-6. **Domain Service**: 複数集約にまたがるロジック
+2. **関心の分離**: 計画と実績の明確な分離 ★重要
+   - **Shipment**: 計画（PlannedRoute）の管理者
+   - **TrackingUnit**: 実績の記録者（計画への参照を持たない）
+   - **計画と実績の統合**: Shipmentのドメインメソッドが責任を持つ
+   - TrackingUnitは他のコンテキストでも再利用可能（計画非依存）
+3. **Strategy Pattern**: PricingStrategyによる計算ロジックの分離
+4. **Composite Pattern**: CompositeStrategyによる料金の合成
+5. **Value Object**: Money, DateRange（不変性、等価性）
+6. **Aggregate**: Route集約、Commercial集約、Shipment集約、Tracking集約
+7. **Domain Service**: 複数集約にまたがるロジック
    - FreightEstimator: 見積計算
    - CostCalculationService: 実績ベース費用計算とGap分析
    - ShipmentStatusUpdater: 集約を越えたステータス更新
-7. **DTO Pattern**: ShipmentContext（計算用の軽量なインターフェース）
+8. **DTO Pattern**: ShipmentContext（計算用の軽量なインターフェース）
+9. **Domain Method**: 集約内での計算ロジック
+   - Shipment.AnalyzeRouteDeviation(): 計画と実績の突合・逸脱分析
 
 ## 費用計算の流れ
 

@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sam8helloworld/tms-poc/internal/domain/route"
 	"github.com/sam8helloworld/tms-poc/internal/domain/shared"
 )
 
@@ -42,7 +41,20 @@ const (
 // 2. Aggregate Root: TrackingUnit (追跡単位)
 // ==========================================
 
-type TrackingUnitID = uuid.UUID
+type TrackingUnitID uuid.UUID
+type TrackingNumberType string
+
+const (
+	TrackingNumberContainer TrackingNumberType = "CONTAINER"
+	TrackingNumberAWB       TrackingNumberType = "AIRWAY_BILL"
+	TrackingNumberBL        TrackingNumberType = "BILL_OF_LADING"
+	TrackingNumberBookNo    TrackingNumberType = "BOOKING_NUMBER"
+)
+
+type TrackingNumber struct {
+	Number             string
+	TrackingNumberType TrackingNumberType
+}
 
 // TrackingUnit: 追跡の最小単位 (Aggregate Root)
 // 物理的な輸送単位（コンテナ1本、トラック1台など）を表す
@@ -52,7 +64,7 @@ type TrackingUnit struct {
 	ID TrackingUnitID
 
 	// 物理的な識別子
-	TrackingNumber string // Container No, AWB, Master B/L No
+	TrackingNumber TrackingNumber // Container No, AWB, Master B/L No
 	CarrierID      uuid.UUID
 
 	// Segments: E2Eの工程ごとの追跡状況
@@ -138,9 +150,10 @@ func (tu *TrackingUnit) recalculateOverallStatus() {
 type TrackingSegment struct {
 	ID uuid.UUID
 
-	// 物理ルート上のどの区間か？ (Link to Network Domain)
-	RouteSegmentID route.RouteSegmentID
-	Mode           shared.TransportMode // OCEAN, AIR, TRUCK
+	// 実際の発着地（実績として記録された場所）
+	ActualOriginLocationID uuid.UUID
+	ActualDestLocationID   uuid.UUID
+	Mode                   shared.TransportMode // OCEAN, AIR, TRUCK
 
 	// この区間のトラッキング番号 (Masterとは別の、船社BLや航空AWB)
 	CarrierTrackingNumber string
@@ -152,11 +165,12 @@ type TrackingSegment struct {
 	Status TrackingStatus
 	Events []TrackingEvent
 
-	// 予実 (ETA/ATA)
-	EstimatedDeparture *time.Time
-	ActualDeparture    *time.Time
-	EstimatedArrival   *time.Time
-	ActualArrival      *time.Time
+	// 実績時刻（計画との対応はShipmentで管理）
+	ActualDeparture *time.Time
+	ActualArrival   *time.Time
+
+	// ETAは外部システム（キャリア）からの予測値
+	EstimatedArrival *time.Time
 }
 
 func (ts *TrackingSegment) AddEvent(event TrackingEvent) {
