@@ -189,11 +189,10 @@ classDiagram
 
     class Tariff {
         +uuid.UUID ID
-        +uuid.UUID ContractID
         +string Name
         +DateRange EffectiveDate
         +TariffLineItem[] LineItems
-        +NewTariff(contractID, name, from, to) Tariff, error
+        +NewTariff(name, from, to) Tariff, error
         +AddLineItem(TariffLineItem) error
         +Validate() error
         +IsEffectiveAt(time.Time) bool
@@ -221,6 +220,64 @@ classDiagram
         +string TariffName
         +uuid.UUID ContractID
         +bool IsUpdate
+    }
+
+    %% ============================================
+    %% Rate (社内レート集約)
+    %% ============================================
+    class RateStatus {
+        <<enumeration>>
+        DRAFT
+        ACTIVE
+        EXPIRED
+    }
+
+    class Rate {
+        <<Aggregate Root>>
+        +EventRecorder
+        +uuid.UUID ID
+        +uuid.UUID ShipperID
+        +string Name
+        +DateRange ValidPeriod
+        -RateStatus status
+        -RateEntry[] entries
+        +time.Time CreatedAt
+        +time.Time UpdatedAt
+        +NewRate(shipperID, name, from, to) Rate, error
+        +Status() RateStatus
+        +Entries() RateEntry[]
+        +AddEntry(RateEntry) error
+        +RemoveEntry(uuid.UUID) error
+        +Activate() error
+        +MarkAsExpired() error
+        +FindEntriesForRoute(originID, destID, mode) RateEntry[]
+    }
+
+    class RateEntry {
+        +uuid.UUID ID
+        +uuid.UUID ProviderID
+        +uuid.UUID ContractID
+        +uuid.UUID TariffID
+        +RouteScope RouteScope
+    }
+
+    class RouteScope {
+        <<Value Object>>
+        +LocationID* OriginID
+        +LocationID* DestinationID
+        +TransportMode* TransportMode
+        +Matches(originID, destID, mode) bool
+    }
+
+    class RateActivated {
+        <<Domain Event>>
+        +BaseEvent
+    }
+
+    class RateEntryAdded {
+        <<Domain Event>>
+        +BaseEvent
+        +uuid.UUID EntryID
     }
 
     %% ============================================
@@ -252,8 +309,7 @@ classDiagram
         <<Entity>>
         +PhysicalRoute PlannedRoute
         +ShipmentItem[] Items
-        +uuid.UUID ContractID
-        +uuid.UUID TariffID
+        +uuid.UUID RateID
         +map TransportRequirements
         +GetTotalWeight() decimal.Decimal
         +GetTotalVolume() decimal.Decimal
@@ -450,7 +506,7 @@ classDiagram
     %% Cost (費用関連)
     %% ============================================
     class EstimatedCost {
-        +uuid.UUID TariffID
+        +uuid.UUID RateID
         +CostLineItem[] LineItems
         +Money TotalAmount
         +time.Time CalculatedAt
@@ -459,7 +515,7 @@ classDiagram
 
     class EstimatedActualCost {
         +uuid.UUID ShipmentID
-        +uuid.UUID TariffID
+        +uuid.UUID RateID
         +SegmentCost[] SegmentCosts
         +Money TotalAmount
         +time.Time CalculatedAt
@@ -564,6 +620,26 @@ classDiagram
         +int TotalTariffCount
     }
 
+    class ApplyContractToRateUseCase {
+        +Execute(ApplyContractToRateInput) ApplyContractToRateOutput, error
+    }
+
+    class ApplyContractToRateInput {
+        +uuid.UUID RateID
+        +uuid.UUID ContractID
+        +uuid.UUID[] TariffIDs
+        +RouteScopeInput RouteScope
+    }
+
+    class ApplyContractToRateOutput {
+        +uuid.UUID RateID
+        +string RateStatus
+        +uuid.UUID ContractID
+        +uuid.UUID ProviderID
+        +AddedEntryDetail[] AddedEntries
+        +int TotalEntryCount
+    }
+
     %% ============================================
     %% Adapter (インフラ層インターフェース)
     %% ============================================
@@ -615,6 +691,14 @@ classDiagram
         +Save(LogisticsProvider) error
     }
 
+    class RateRepository {
+        <<interface>>
+        +Save(Rate) error
+        +FindByID(uuid.UUID) Rate, error
+        +FindActiveByShipper(uuid.UUID) Rate[], error
+        +Delete(uuid.UUID) error
+    }
+
     %% ============================================
     %% Relationships (関連)
     %% ============================================
@@ -651,7 +735,25 @@ classDiagram
     ContractStatusChanged --> BaseEvent : extends
     TariffRegistered --> BaseEvent : extends
 
+    %% Rate Aggregate
+    Rate *-- RateEntry : contains (aggregate)
+    Rate ..> RateStatus : uses
+    Rate ..> DateRange : uses
+    Rate *-- EventRecorder : embeds
+    Rate ..> RateActivated : emits
+    Rate ..> RateEntryAdded : emits
+    RateEntry --> RouteScope : has
+    RouteScope --> Location : origin (optional)
+    RouteScope --> Location : destination (optional)
+    RouteScope ..> TransportMode : uses
+    RateEntry --> Tariff : references (TariffID)
+    RateEntry --> ServiceContract : references (ContractID)
+    RateEntry --> LogisticsProvider : references (ProviderID)
+    RateActivated --> BaseEvent : extends
+    RateEntryAdded --> BaseEvent : extends
+
     %% Shipment Aggregate
+    ShipmentPlan --> Rate : references (RateID)
     Shipment *-- ShipmentPlan : contains
     Shipment *-- ShipmentCost : contains
     Shipment --> TrackingUnit : references (TrackingUnitIDs)
@@ -742,6 +844,12 @@ classDiagram
     RegisterTariffUseCase ..> TariffParserFactory : uses
     RegisterTariffUseCase ..> ServiceContractRepository : uses
     RegisterTariffUseCase ..> Tariff : creates
+    ApplyContractToRateUseCase ..> ApplyContractToRateInput : uses
+    ApplyContractToRateUseCase ..> ApplyContractToRateOutput : produces
+    ApplyContractToRateUseCase ..> ServiceContractRepository : uses
+    ApplyContractToRateUseCase ..> RateRepository : uses
+    ApplyContractToRateUseCase ..> Rate : updates
+    ApplyContractToRateUseCase ..> ServiceContract : reads
 
     %% Adapter Layer
     TariffParser ..> ParsedTariffData : produces
@@ -751,6 +859,7 @@ classDiagram
     %% Repository Layer
     ServiceContractRepository ..> ServiceContract : manages
     LogisticsProviderRepository ..> LogisticsProvider : manages
+    RateRepository ..> Rate : manages
 ```
 
 ## レイヤー説明
@@ -779,21 +888,30 @@ classDiagram
   - EventRecorderを埋め込み、ContractStatusChanged / TariffRegistered イベントを発行
 - **LogisticsProvider**: 物流企業（キャリア、フォワーダーなど）
 - **Tariff**: 料金表（契約に紐づく料金項目の集合）
-  - ServiceContract集約内のエンティティ
+  - ServiceContract集約内のエンティティ（ContractIDフィールドは持たない。集約ルートが管理）
 - **TariffLineItem**: 個別の料金定義（THC、運賃など）
 
-### 4. Shipment Aggregate (出荷案件集約)
+### 4. Rate Aggregate (社内レート集約)
+- **Rate**: 社内レート（集約ルート）
+  - 荷主が複数業者のTariffからルート単位で選択・組み合わせた通期レート
+  - RateStatus: DRAFT（作成中）→ ACTIVE（使用可能）→ EXPIRED（期限切れ）
+  - `status`, `entries` フィールドはprivateでgetter経由でアクセス
+  - EventRecorderを埋め込み、RateActivated / RateEntryAdded イベントを発行
+- **RateEntry**: レートの構成要素（特定の業者の特定のTariffをまるごと採用）
+- **RouteScope**: レートエントリの適用ルート範囲（値オブジェクト）
+
+### 5. Shipment Aggregate (出荷案件集約)
 - **Shipment**: 出荷案件（集約ルート）
   - 荷主視点での「1つの仕事」を表現
   - `status`, `cost`, `trackingUnitIDs` フィールドはprivateでgetter経由でアクセス
   - `NewShipment()` ファクトリ関数でバリデーション付き生成
   - EventRecorderを埋め込み、ShipmentCreated / ShipmentStatusChanged イベントを発行
   - ルート逸脱分析はRouteDeviationServiceに委譲
-- **ShipmentPlan**: 計画情報（エンティティ）
+- **ShipmentPlan**: 計画情報（エンティティ）。RateIDで社内レートを参照
 - **ShipmentItem**: 貨物明細（エンティティ）
 - **ShipmentCost**: 費用情報（エンティティ）
 
-### 5. Tracking Aggregate (追跡集約)
+### 6. Tracking Aggregate (追跡集約)
 - **TrackingUnit**: 追跡単位（集約ルート）
   - `currentStatus`, `segments` フィールドはprivateでgetter経由でアクセス
   - `NewTrackingUnit()` ファクトリ関数でバリデーション付き生成
@@ -802,12 +920,12 @@ classDiagram
 - **TrackingSegment**: 実際に発生した移動区間（エンティティ）
 - **TrackingEvent**: 追跡イベント（値オブジェクト）
 
-### 6. CalcParam Layer (計算パラメータ層)
+### 7. CalcParam Layer (計算パラメータ層)
 - **ShipmentContext**: 計算用DTO（計算インターフェース）
   - パッケージ: `calcparam`（Go stdlib `context` との名前衝突を回避）
   - 物理ルート情報、貨物情報（数量、重量、容積）、カスタム属性
 
-### 7. Cost Layer (費用層)
+### 8. Cost Layer (費用層)
 - **EstimatedCost**: 見積費用（計画時点での推定費用）
 - **EstimatedActualCost**: 想定実費用（トラッキング実績ベース）
 - **ActualCost**: 実請求額（外部インボイスデータ）
@@ -816,7 +934,7 @@ classDiagram
 - **CostGapAnalysis**: 費用差異分析結果
 - **CostItemGap**: 項目別費用差異
 
-### 8. Logic Layer (ビジネスロジック層)
+### 9. Logic Layer (ビジネスロジック層)
 - **ServiceScope**: 料金適用範囲を判定するインターフェース
   - LocationService: 場所ベースのサービス（THC、保管など）
   - TransportationService: 輸送ベースのサービス（海上運賃、ドレージなど）
@@ -825,7 +943,7 @@ classDiagram
   - CelExpressionStrategy: CEL式による動的計算
   - CompositeStrategy: 複数戦略の合成（Money.Add使用、エラーハンドリング付き）
 
-### 9. Service Layer (ドメインサービス層)
+### 10. Service Layer (ドメインサービス層)
 - **FreightEstimator**: 見積計算サービス
   - ShipmentContextとTariffから見積費用を計算
 - **CostCalculationService**: 費用計算サービス
@@ -839,29 +957,34 @@ classDiagram
   - Shipmentの計画とTrackingUnitの実績を突合
   - Shipment集約から分離されたドメインサービス
 
-### 10. Route Deviation Analysis (ルート逸脱分析)
+### 11. Route Deviation Analysis (ルート逸脱分析)
 - **RouteDeviationAnalysis**: ルート逸脱分析結果（値オブジェクト）
 - **SegmentMapping**: 計画セグメントと実績セグメントの対応関係
 - **RouteDeviationService.AnalyzeDeviation()**: ドメインサービスメソッド
 
-### 11. UseCase Layer (アプリケーション層)
+### 12. UseCase Layer (アプリケーション層)
 - **RegisterTariffUseCase**: 料金表登録ユースケース
   - contract.Status() / contract.TariffCount() / contract.Tariffs() getter使用
+- **ApplyContractToRateUseCase**: 契約反映ユースケース
+  - CONTRACTED状態の契約から料金表（一部または全部）をDRAFT状態のRateに反映
+  - contract.IsActive() でCONTRACTED状態を検証、contract.Tariffs() で料金表を取得
 
-### 12. Adapter Layer (インフラ層インターフェース)
+### 13. Adapter Layer (インフラ層インターフェース)
 - **TariffParser**: 料金表ファイル解析インターフェース
 - **ParsedTariffData**: 解析された料金表データ（中間データ構造）
 - **TariffParserFactory**: パーサーファクトリー
 
-### 13. Repository Layer (リポジトリ層インターフェース)
+### 14. Repository Layer (リポジトリ層インターフェース)
 - **ServiceContractRepository**: ServiceContract集約のリポジトリ
 - **LogisticsProviderRepository**: LogisticsProvider集約のリポジトリ
+- **RateRepository**: Rate集約のリポジトリ
 
 ## 主要な設計パターン
 
 1. **Aggregate分離と境界**:
    - ShipmentとTrackingUnitを独立した集約として分離
    - ServiceContractを集約ルートとしてTariffを管理
+   - Rateを集約ルートとしてRateEntryを管理（複数業者のTariffを組み合わせた社内レート）
    - 集約間の参照はIDのみ（疎結合）
 2. **カプセル化**:
    - 集約ルートの重要フィールドはprivate（小文字）
