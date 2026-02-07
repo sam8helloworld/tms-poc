@@ -107,9 +107,6 @@ func (c *ServiceContract) AddOrUpdateTariff(tariff *Tariff) error {
 		return shared.NewDomainError(shared.ErrInvalidArgument, "tariff is required")
 	}
 
-	// ContractIDを設定
-	tariff.ContractID = c.ID
-
 	// バリデーション
 	if err := tariff.Validate(); err != nil {
 		return err

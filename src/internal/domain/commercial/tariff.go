@@ -12,9 +12,9 @@ import (
 
 // Tariff: 料金表 (Rate Book / Catalog)
 // 1つの契約の下にぶら下がる、大量の料金項目の集合体
+// ServiceContract集約内のエンティティとして管理される
 type Tariff struct {
 	ID            uuid.UUID
-	ContractID    uuid.UUID
 	Name          string // e.g. "2026 Japan Export"
 	EffectiveDate shared.DateRange
 
@@ -25,14 +25,10 @@ type Tariff struct {
 // NewTariff: Tariffのファクトリー関数
 // ドメイン不変条件を保証した状態でTariffを生成する
 func NewTariff(
-	contractID uuid.UUID,
 	name string,
 	effectiveFrom time.Time,
 	effectiveTo time.Time,
 ) (*Tariff, error) {
-	if contractID == uuid.Nil {
-		return nil, shared.NewDomainError(shared.ErrInvalidArgument, "contractID is required")
-	}
 	if name == "" {
 		return nil, shared.NewDomainError(shared.ErrInvalidArgument, "tariff name is required")
 	}
@@ -41,9 +37,8 @@ func NewTariff(
 	}
 
 	return &Tariff{
-		ID:         uuid.New(),
-		ContractID: contractID,
-		Name:       name,
+		ID:   uuid.New(),
+		Name: name,
 		EffectiveDate: shared.DateRange{
 			From: effectiveFrom,
 			To:   effectiveTo,
@@ -78,9 +73,6 @@ func (t *Tariff) AddLineItem(item TariffLineItem) error {
 func (t *Tariff) Validate() error {
 	if t.ID == uuid.Nil {
 		return shared.NewDomainError(shared.ErrInvalidArgument, "tariff ID is required")
-	}
-	if t.ContractID == uuid.Nil {
-		return shared.NewDomainError(shared.ErrInvalidArgument, "contract ID is required")
 	}
 	if t.Name == "" {
 		return shared.NewDomainError(shared.ErrInvalidArgument, "tariff name is required")

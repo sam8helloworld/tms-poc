@@ -250,10 +250,8 @@ func (uc *RegisterTariffUseCase) buildValidationError(result *parser.ValidationR
 func (uc *RegisterTariffUseCase) convertToTariff(
 	data *parser.ParsedTariffData,
 ) (*commercial.Tariff, error) {
-	// Tariff集約ルートの生成
-	// ContractIDは後でServiceContract.AddOrUpdateTariffで設定される
+	// Tariff生成（ServiceContract集約内のエンティティとして管理される）
 	tariff, err := commercial.NewTariff(
-		uuid.Nil, // ContractIDは後で設定
 		data.TariffName,
 		data.EffectiveFrom,
 		data.EffectiveTo,
