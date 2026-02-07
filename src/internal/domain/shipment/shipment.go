@@ -107,9 +107,8 @@ type ShipmentPlan struct {
 	// 貨物明細
 	Items []ShipmentItem
 
-	// 使用する契約・料金表
-	ContractID uuid.UUID
-	TariffID   uuid.UUID
+	// 使用するレート（社内レート）
+	RateID uuid.UUID
 
 	// 輸送要求事項
 	TransportRequirements map[string]interface{} // 温度管理、危険物等の属性

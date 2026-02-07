@@ -63,7 +63,7 @@ func (ccs *CostCalculationService) CalculateEstimatedCost(
 	}
 
 	result := shipment.EstimatedCost{
-		TariffID:        tariff.ID,
+		RateID:          plan.RateID,
 		LineItems:       lineItems,
 		CalculatedAt:    time.Now(),
 		CalculationBase: "PLAN_BASED",
@@ -110,7 +110,7 @@ func (ccs *CostCalculationService) CalculateEstimatedActualCost(
 
 	result := shipment.EstimatedActualCost{
 		ShipmentID:      ship.ID,
-		TariffID:        tariff.ID,
+		RateID:          ship.Plan.RateID,
 		SegmentCosts:    segmentCosts,
 		CalculatedAt:    time.Now(),
 		CalculationBase: "TRACKING_PROGRESS",

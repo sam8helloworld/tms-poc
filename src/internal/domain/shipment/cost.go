@@ -12,20 +12,20 @@ import (
 // ==========================================
 
 // EstimatedCost: 見積費用 (計画時点での推定費用)
-// FreightEstimatorによって計算される
+// CostCalculationServiceによってRateを元に計算される
 type EstimatedCost struct {
-	TariffID      uuid.UUID
-	LineItems     []CostLineItem
+	RateID          uuid.UUID
+	LineItems       []CostLineItem
 	TotalAmount     shared.Money
 	CalculatedAt    time.Time
 	CalculationBase string // "PLAN_BASED"
 }
 
 // EstimatedActualCost: 想定実費用 (トラッキング実績ベースの費用)
-// CostCalculationServiceによって計算される
+// CostCalculationServiceによってRateを元に計算される
 type EstimatedActualCost struct {
 	ShipmentID      uuid.UUID
-	TariffID        uuid.UUID
+	RateID          uuid.UUID
 	SegmentCosts    []SegmentCost   // セグメント単位の内訳
 	TotalAmount     shared.Money    // 合計
 	CalculatedAt    time.Time

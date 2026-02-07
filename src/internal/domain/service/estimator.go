@@ -1,9 +1,8 @@
 package service
 
 import (
-	"github.com/google/uuid"
-	"github.com/sam8helloworld/tms-poc/internal/domain/commercial"
 	"github.com/sam8helloworld/tms-poc/internal/domain/calcparam"
+	"github.com/sam8helloworld/tms-poc/internal/domain/commercial"
 	"github.com/sam8helloworld/tms-poc/internal/domain/shared"
 )
 
@@ -32,14 +31,13 @@ func (fe *FreightEstimator) Estimate(ctx calcparam.ShipmentContext, tariff *comm
 	}
 
 	return EstimatedCost{
-		TariffID:  tariff.ID,
 		LineItems: lines,
 	}, nil
 }
 
 // EstimatedCost: 計算結果 (Result)
+// Tariffから計算された中間結果。RateIDの設定はCostCalculationServiceが担当
 type EstimatedCost struct {
-	TariffID  uuid.UUID
 	LineItems []CalculatedLineItem
 }
 
