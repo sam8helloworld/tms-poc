@@ -591,6 +591,37 @@ classDiagram
     %% ============================================
     %% UseCase (アプリケーション層)
     %% ============================================
+    class CreateBidContractUseCase {
+        +Execute(CreateBidContractInput) CreateBidContractOutput, error
+    }
+
+    class CreateBidContractInput {
+        +uuid.UUID BidRequestID
+        +uuid.UUID ProviderID
+        +uuid.UUID ShipperID
+        +time.Time ValidFrom
+        +time.Time ValidTo
+        +string BidRequestName
+        +uuid.UUID RequestedBy
+        +time.Time RequestedAt
+        +time.Time DueDate
+        +BidRouteInfo[] TargetRoutes
+    }
+
+    class CreateBidContractOutput {
+        +uuid.UUID ContractID
+        +uuid.UUID ProviderID
+        +uuid.UUID ShipperID
+        +string Status
+        +time.Time ValidFrom
+        +time.Time ValidTo
+        +time.Time CreatedAt
+        +uuid.UUID BidRequestID
+        +string BidRequestName
+        +BidRouteInfo[] TargetRouteInfo
+        +string[] NextSteps
+    }
+
     class RegisterTariffUseCase {
         +Execute(RegisterTariffInput) RegisterTariffOutput, error
     }
@@ -839,6 +870,10 @@ classDiagram
     ActualCost ..> Money : uses
 
     %% UseCase Layer
+    CreateBidContractUseCase ..> CreateBidContractInput : uses
+    CreateBidContractUseCase ..> CreateBidContractOutput : produces
+    CreateBidContractUseCase ..> ServiceContractRepository : uses
+    CreateBidContractUseCase ..> ServiceContract : creates
     RegisterTariffUseCase ..> RegisterTariffInput : uses
     RegisterTariffUseCase ..> RegisterTariffOutput : produces
     RegisterTariffUseCase ..> TariffParserFactory : uses
@@ -886,6 +921,12 @@ classDiagram
   - ContractStatus: DRAFT（入札段階）→ CONTRACTED（契約成立）→ EXPIRED/CANCELLED
   - `status`, `tariffs` フィールドはprivateでgetter経由でアクセス
   - EventRecorderを埋め込み、ContractStatusChanged / TariffRegistered イベントを発行
+  - **入札フロー**:
+    1. CreateBidContractUseCase: DRAFT契約を作成
+    2. RegisterTariffUseCase: 業者から提示された料金表を登録
+    3. 荷主が各DRAFT契約を比較検討
+    4. MarkAsContracted(): 最適な契約を正式化
+    5. MarkAsCancelled(): 他の契約をキャンセル
 - **LogisticsProvider**: 物流企業（キャリア、フォワーダーなど）
 - **Tariff**: 料金表（契約に紐づく料金項目の集合）
   - ServiceContract集約内のエンティティ（ContractIDフィールドは持たない。集約ルートが管理）
@@ -963,8 +1004,13 @@ classDiagram
 - **RouteDeviationService.AnalyzeDeviation()**: ドメインサービスメソッド
 
 ### 12. UseCase Layer (アプリケーション層)
+- **CreateBidContractUseCase**: 入札契約作成ユースケース
+  - 入札プロセスにおいて、各物流業者との契約をDRAFT状態で作成
+  - BidRequestIDで複数業者への入札をグループ化
+  - 契約は初期状態でDRAFT、料金表の登録待ち
 - **RegisterTariffUseCase**: 料金表登録ユースケース
   - contract.Status() / contract.TariffCount() / contract.Tariffs() getter使用
+  - DRAFT契約に物流業者から提示された料金表を登録
 - **ApplyContractToRateUseCase**: 契約反映ユースケース
   - CONTRACTED状態の契約から料金表（一部または全部）をDRAFT状態のRateに反映
   - contract.IsActive() でCONTRACTED状態を検証、contract.Tariffs() で料金表を取得
