@@ -179,6 +179,8 @@ classDiagram
         +TariffCount() int
         +AddOrUpdateTariff(Tariff) error
         +RemoveTariff(uuid.UUID) error
+        +FindTariffsByName(string) Tariff[]
+        +FindLatestTariffVersion(string) Tariff
         +MarkAsContracted() error
         +MarkAsExpired() error
         +MarkAsCancelled() error
@@ -190,12 +192,17 @@ classDiagram
     class Tariff {
         +uuid.UUID ID
         +string Name
+        +int Version
+        +uuid.UUID* BaseVersionID
         +DateRange EffectiveDate
         +TariffLineItem[] LineItems
         +NewTariff(name, from, to) Tariff, error
+        +NewTariffVersion(baseTariff, from, to) Tariff, error
         +AddLineItem(TariffLineItem) error
         +Validate() error
         +IsEffectiveAt(time.Time) bool
+        +IsNewVersion() bool
+        +GetVersionInfo() string
     }
 
     class TariffLineItem {
@@ -671,6 +678,90 @@ classDiagram
         +int TotalEntryCount
     }
 
+    class UpdateContractPeriodUseCase {
+        +Execute(UpdateContractPeriodInput) UpdateContractPeriodOutput, error
+    }
+
+    class UpdateContractPeriodInput {
+        +uuid.UUID ContractID
+        +time.Time ValidFrom
+        +time.Time ValidTo
+    }
+
+    class UpdateContractPeriodOutput {
+        +uuid.UUID ContractID
+        +uuid.UUID ProviderID
+        +uuid.UUID ShipperID
+        +string Status
+        +time.Time ValidFrom
+        +time.Time ValidTo
+        +time.Time UpdatedAt
+        +int TariffCount
+    }
+
+    class DeleteBidContractUseCase {
+        +Execute(DeleteBidContractInput) DeleteBidContractOutput, error
+    }
+
+    class DeleteBidContractInput {
+        +uuid.UUID ContractID
+    }
+
+    class DeleteBidContractOutput {
+        +uuid.UUID ContractID
+        +uuid.UUID ProviderID
+        +uuid.UUID ShipperID
+        +string Status
+        +time.Time DeletedAt
+    }
+
+    class AddTariffVersionUseCase {
+        +Execute(AddTariffVersionInput) AddTariffVersionOutput, error
+    }
+
+    class AddTariffVersionInput {
+        +io.Reader FileReader
+        +string FileFormat
+        +string FileName
+        +uuid.UUID ContractID
+        +uuid.UUID BaseTariffID
+        +uuid.UUID UploadedBy
+        +time.Time* EffectiveFrom
+        +time.Time* EffectiveTo
+    }
+
+    class AddTariffVersionOutput {
+        +uuid.UUID ContractID
+        +string ContractStatus
+        +uuid.UUID TariffID
+        +string TariffName
+        +int TariffVersion
+        +uuid.UUID BaseTariffID
+        +time.Time EffectiveFrom
+        +time.Time EffectiveTo
+        +int LineItemCount
+        +int TotalTariffCount
+        +string Message
+    }
+
+    class RemoveTariffFromContractUseCase {
+        +Execute(RemoveTariffInput) RemoveTariffOutput, error
+    }
+
+    class RemoveTariffInput {
+        +uuid.UUID ContractID
+        +uuid.UUID TariffID
+    }
+
+    class RemoveTariffOutput {
+        +uuid.UUID ContractID
+        +string ContractStatus
+        +uuid.UUID RemovedTariffID
+        +string RemovedTariffName
+        +int RemainingTariffs
+        +string Message
+    }
+
     %% ============================================
     %% Adapter (インフラ層インターフェース)
     %% ============================================
@@ -885,6 +976,23 @@ classDiagram
     ApplyContractToRateUseCase ..> RateRepository : uses
     ApplyContractToRateUseCase ..> Rate : updates
     ApplyContractToRateUseCase ..> ServiceContract : reads
+    UpdateContractPeriodUseCase ..> UpdateContractPeriodInput : uses
+    UpdateContractPeriodUseCase ..> UpdateContractPeriodOutput : produces
+    UpdateContractPeriodUseCase ..> ServiceContractRepository : uses
+    UpdateContractPeriodUseCase ..> ServiceContract : updates
+    DeleteBidContractUseCase ..> DeleteBidContractInput : uses
+    DeleteBidContractUseCase ..> DeleteBidContractOutput : produces
+    DeleteBidContractUseCase ..> ServiceContractRepository : uses
+    DeleteBidContractUseCase ..> ServiceContract : deletes
+    AddTariffVersionUseCase ..> AddTariffVersionInput : uses
+    AddTariffVersionUseCase ..> AddTariffVersionOutput : produces
+    AddTariffVersionUseCase ..> TariffParserFactory : uses
+    AddTariffVersionUseCase ..> ServiceContractRepository : uses
+    AddTariffVersionUseCase ..> Tariff : creates
+    RemoveTariffFromContractUseCase ..> RemoveTariffInput : uses
+    RemoveTariffFromContractUseCase ..> RemoveTariffOutput : produces
+    RemoveTariffFromContractUseCase ..> ServiceContractRepository : uses
+    RemoveTariffFromContractUseCase ..> ServiceContract : updates
 
     %% Adapter Layer
     TariffParser ..> ParsedTariffData : produces
@@ -930,6 +1038,12 @@ classDiagram
 - **LogisticsProvider**: 物流企業（キャリア、フォワーダーなど）
 - **Tariff**: 料金表（契約に紐づく料金項目の集合）
   - ServiceContract集約内のエンティティ（ContractIDフィールドは持たない。集約ルートが管理）
+  - **バージョン管理**: 同じ業者から改定版の料金表を受け取った場合、履歴を保持
+    - `Version`: バージョン番号（1, 2, 3...）
+    - `BaseVersionID`: 元となったTariffのID（初版の場合はnil）
+    - 同じ名前でもバージョンが異なれば別レコードとして管理
+    - `FindTariffsByName()`: 指定された名前の全バージョンを取得
+    - `FindLatestTariffVersion()`: 最新バージョンのみ取得
 - **TariffLineItem**: 個別の料金定義（THC、運賃など）
 
 ### 4. Rate Aggregate (社内レート集約)
@@ -1008,9 +1122,22 @@ classDiagram
   - 入札プロセスにおいて、各物流業者との契約をDRAFT状態で作成
   - BidRequestIDで複数業者への入札をグループ化
   - 契約は初期状態でDRAFT、料金表の登録待ち
+- **UpdateContractPeriodUseCase**: 契約期間更新ユースケース
+  - DRAFT状態の契約の有効期間（ValidPeriod）を変更
+  - 入札プロセスで契約期間を調整する際に使用
+- **DeleteBidContractUseCase**: 入札契約削除ユースケース
+  - DRAFT状態の契約をCANCELLED状態にする（論理削除）
+  - 入札で不要になった契約を削除
 - **RegisterTariffUseCase**: 料金表登録ユースケース
   - contract.Status() / contract.TariffCount() / contract.Tariffs() getter使用
   - DRAFT契約に物流業者から提示された料金表を登録
+- **AddTariffVersionUseCase**: 料金表バージョン追加ユースケース
+  - 既存のTariffの新バージョンを追加（履歴保持）
+  - 同じ業者から改定版の料金表を受け取った場合に使用
+  - NewTariffVersion()で新バージョンを作成し、古いバージョンも保持
+- **RemoveTariffFromContractUseCase**: 料金表削除ユースケース
+  - DRAFT状態の契約から料金表を削除
+  - 不要な料金表を契約から除外
 - **ApplyContractToRateUseCase**: 契約反映ユースケース
   - CONTRACTED状態の契約から料金表（一部または全部）をDRAFT状態のRateに反映
   - contract.IsActive() でCONTRACTED状態を検証、contract.Tariffs() で料金表を取得

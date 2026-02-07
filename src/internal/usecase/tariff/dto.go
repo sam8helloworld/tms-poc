@@ -53,10 +53,19 @@ type RegisterTariffError struct {
 	Code    string // "FILE_PARSE_ERROR", "VALIDATION_ERROR", "CONTRACT_NOT_FOUND"
 	Message string
 	Details map[string]any
+	Cause   error // 原因となったエラー
 }
 
 func (e *RegisterTariffError) Error() string {
+	if e.Cause != nil {
+		return e.Message + ": " + e.Cause.Error()
+	}
 	return e.Message
+}
+
+// Unwrap: 原因エラーを取得
+func (e *RegisterTariffError) Unwrap() error {
+	return e.Cause
 }
 
 // NewRegisterTariffError: RegisterTariffErrorのファクトリー関数
@@ -71,5 +80,11 @@ func NewRegisterTariffError(code, message string) *RegisterTariffError {
 // WithDetail: エラーに詳細情報を追加
 func (e *RegisterTariffError) WithDetail(key string, value any) *RegisterTariffError {
 	e.Details[key] = value
+	return e
+}
+
+// WithCause: 原因エラーを追加
+func (e *RegisterTariffError) WithCause(cause error) *RegisterTariffError {
+	e.Cause = cause
 	return e
 }

@@ -97,7 +97,8 @@ func NewServiceContract(
 }
 
 // AddOrUpdateTariff: 料金表を追加または更新
-// 同じ名前・有効期間のTariffがあれば更新、なければ追加
+// 同じID（UUID）のTariffがあれば更新、なければ追加
+// バージョン管理: 同じ名前でもバージョンが異なれば別レコードとして追加される
 func (c *ServiceContract) AddOrUpdateTariff(tariff *Tariff) error {
 	if err := c.canModifyTariffs(); err != nil {
 		return err
@@ -112,10 +113,10 @@ func (c *ServiceContract) AddOrUpdateTariff(tariff *Tariff) error {
 		return err
 	}
 
-	// 既存のTariffを検索
+	// 既存のTariffを検索（IDで判定）
 	for i, existing := range c.tariffs {
-		if c.isSameTariff(existing, tariff) {
-			// 更新
+		if existing.ID == tariff.ID {
+			// 更新（同じIDの場合のみ）
 			c.tariffs[i] = tariff
 			c.UpdatedAt = time.Now()
 			c.RecordEvent(NewTariffRegistered(c.ID, tariff.ID, tariff.Name, true))
@@ -123,10 +124,11 @@ func (c *ServiceContract) AddOrUpdateTariff(tariff *Tariff) error {
 		}
 	}
 
-	// 追加
+	// 追加（新規または新バージョン）
 	c.tariffs = append(c.tariffs, tariff)
 	c.UpdatedAt = time.Now()
-	c.RecordEvent(NewTariffRegistered(c.ID, tariff.ID, tariff.Name, false))
+	isUpdate := tariff.IsNewVersion() // 新バージョンの場合はtrueになる
+	c.RecordEvent(NewTariffRegistered(c.ID, tariff.ID, tariff.Name, isUpdate))
 	return nil
 }
 
@@ -231,10 +233,26 @@ func (c *ServiceContract) canModifyTariffs() error {
 	return nil
 }
 
-// isSameTariff: 2つのTariffが同じものか判定
-// 名前と有効期間が同じであれば同一とみなす
-func (c *ServiceContract) isSameTariff(t1, t2 *Tariff) bool {
-	return t1.Name == t2.Name &&
-		t1.EffectiveDate.From.Equal(t2.EffectiveDate.From) &&
-		t1.EffectiveDate.To.Equal(t2.EffectiveDate.To)
+// FindTariffsByName: 指定された名前のすべてのTariffバージョンを取得
+func (c *ServiceContract) FindTariffsByName(name string) []*Tariff {
+	var result []*Tariff
+	for _, tariff := range c.tariffs {
+		if tariff.Name == name {
+			result = append(result, tariff)
+		}
+	}
+	return result
+}
+
+// FindLatestTariffVersion: 指定された名前の最新バージョンのTariffを取得
+func (c *ServiceContract) FindLatestTariffVersion(name string) *Tariff {
+	var latest *Tariff
+	for _, tariff := range c.tariffs {
+		if tariff.Name == name {
+			if latest == nil || tariff.Version > latest.Version {
+				latest = tariff
+			}
+		}
+	}
+	return latest
 }

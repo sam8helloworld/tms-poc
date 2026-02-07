@@ -1,0 +1,282 @@
+package tariff
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/sam8helloworld/tms-poc/internal/adapter/parser"
+	"github.com/sam8helloworld/tms-poc/internal/domain/commercial"
+	"github.com/sam8helloworld/tms-poc/internal/domain/logic/pricing"
+	"github.com/sam8helloworld/tms-poc/internal/domain/logic/scope"
+	"github.com/sam8helloworld/tms-poc/internal/domain/route"
+	"github.com/sam8helloworld/tms-poc/internal/domain/shared"
+)
+
+// AddTariffVersionInput: 料金表バージョン追加の入力
+type AddTariffVersionInput struct {
+	FileReader         io.Reader
+	FileFormat         string    // "csv", "excel", "json"
+	FileName           string
+	ContractID         uuid.UUID // 料金表を追加する契約のID
+	BaseTariffID       uuid.UUID // バージョンアップ元のTariffID
+	UploadedBy         uuid.UUID
+	EffectiveFrom      *time.Time // 新バージョンの有効期間開始（オプション：ファイルから取得可能）
+	EffectiveTo        *time.Time // 新バージョンの有効期間終了（オプション：ファイルから取得可能）
+}
+
+// AddTariffVersionOutput: 料金表バージョン追加の出力
+type AddTariffVersionOutput struct {
+	ContractID       uuid.UUID
+	ContractStatus   string
+	TariffID         uuid.UUID
+	TariffName       string
+	TariffVersion    int
+	BaseTariffID     uuid.UUID
+	EffectiveFrom    time.Time
+	EffectiveTo      time.Time
+	LineItemCount    int
+	TotalTariffCount int
+	Message          string
+}
+
+// AddTariffVersionUseCase: 既存料金表の新バージョンを追加するユースケース
+// 同じ名前のTariffの改定版を受け取った場合、履歴を保持しつつ新バージョンとして追加する
+type AddTariffVersionUseCase struct {
+	contractRepo  commercial.ServiceContractRepository
+	parserFactory parser.TariffParserFactory
+}
+
+// NewAddTariffVersionUseCase: コンストラクタ
+func NewAddTariffVersionUseCase(
+	contractRepo commercial.ServiceContractRepository,
+	parserFactory parser.TariffParserFactory,
+) *AddTariffVersionUseCase {
+	return &AddTariffVersionUseCase{
+		contractRepo:  contractRepo,
+		parserFactory: parserFactory,
+	}
+}
+
+// Execute: ユースケースの実行
+func (uc *AddTariffVersionUseCase) Execute(
+	ctx context.Context,
+	input AddTariffVersionInput,
+) (*AddTariffVersionOutput, error) {
+	// 1. 契約を取得
+	contract, err := uc.contractRepo.FindByID(ctx, input.ContractID)
+	if err != nil {
+		return nil, NewRegisterTariffError("CONTRACT_NOT_FOUND", "contract not found").
+			WithDetail("contractID", input.ContractID)
+	}
+
+	// DRAFT状態のみ料金表追加可能
+	if !contract.IsDraft() {
+		return nil, NewRegisterTariffError(
+			"INVALID_CONTRACT_STATE",
+			"tariffs can only be added to DRAFT contracts",
+		).WithDetail("currentStatus", string(contract.Status()))
+	}
+
+	// 2. ベースとなるTariffを取得
+	var baseTariff *commercial.Tariff
+	for _, tariff := range contract.Tariffs() {
+		if tariff.ID == input.BaseTariffID {
+			baseTariff = tariff
+			break
+		}
+	}
+	if baseTariff == nil {
+		return nil, NewRegisterTariffError("BASE_TARIFF_NOT_FOUND", "base tariff not found in contract").
+			WithDetail("baseTariffID", input.BaseTariffID).
+			WithDetail("contractID", input.ContractID)
+	}
+
+	// 3. ファイルをパース
+	parser, err := uc.parserFactory.GetParser(input.FileFormat)
+	if err != nil {
+		return nil, NewRegisterTariffError("UNSUPPORTED_FORMAT", "unsupported file format").
+			WithDetail("format", input.FileFormat)
+	}
+
+	parsedData, err := parser.Parse(input.FileReader)
+	if err != nil {
+		return nil, NewRegisterTariffError("PARSE_ERROR", "failed to parse tariff file").
+			WithCause(err)
+	}
+
+	// 4. 有効期間の決定（入力 > ファイル）
+	effectiveFrom := parsedData.EffectiveFrom
+	if input.EffectiveFrom != nil {
+		effectiveFrom = *input.EffectiveFrom
+	}
+	effectiveTo := parsedData.EffectiveTo
+	if input.EffectiveTo != nil {
+		effectiveTo = *input.EffectiveTo
+	}
+
+	// 5. 新バージョンのTariffを作成
+	newTariff, err := commercial.NewTariffVersion(baseTariff, effectiveFrom, effectiveTo)
+	if err != nil {
+		return nil, NewRegisterTariffError("TARIFF_CREATE_ERROR", "failed to create tariff version").
+			WithCause(err)
+	}
+
+	// 6. LineItemsを追加
+	for _, parsedItem := range parsedData.LineItems {
+		scope, err := uc.buildServiceScope(parsedItem)
+		if err != nil {
+			return nil, NewRegisterTariffError("SCOPE_BUILD_ERROR", "failed to build service scope").
+				WithCause(err)
+		}
+
+		logic, err := uc.buildPricingStrategy(parsedItem)
+		if err != nil {
+			return nil, NewRegisterTariffError("LOGIC_BUILD_ERROR", "failed to build pricing logic").
+				WithCause(err)
+		}
+
+		lineItem := commercial.TariffLineItem{
+			ChargeCode: parsedItem.ChargeCode,
+			Category:   parsedItem.Category,
+			Scope:      scope,
+			Logic:      logic,
+		}
+
+		if err := newTariff.AddLineItem(lineItem); err != nil {
+			return nil, NewRegisterTariffError("LINE_ITEM_ERROR", "failed to add line item").
+				WithCause(err)
+		}
+	}
+
+	// 7. 契約に新バージョンを追加
+	if err := contract.AddOrUpdateTariff(newTariff); err != nil {
+		return nil, NewRegisterTariffError("ADD_TARIFF_ERROR", "failed to add tariff to contract").
+			WithCause(err)
+	}
+
+	// 8. 契約を保存
+	if err := uc.contractRepo.Save(ctx, contract); err != nil {
+		return nil, NewRegisterTariffError("SAVE_ERROR", "failed to save contract").
+			WithCause(err)
+	}
+
+	// 9. レスポンスを構築
+	return &AddTariffVersionOutput{
+		ContractID:       contract.ID,
+		ContractStatus:   string(contract.Status()),
+		TariffID:         newTariff.ID,
+		TariffName:       newTariff.Name,
+		TariffVersion:    newTariff.Version,
+		BaseTariffID:     *newTariff.BaseVersionID,
+		EffectiveFrom:    newTariff.EffectiveDate.From,
+		EffectiveTo:      newTariff.EffectiveDate.To,
+		LineItemCount:    len(newTariff.LineItems),
+		TotalTariffCount: contract.TariffCount(),
+		Message:          "New tariff version added successfully. Old version is retained for history.",
+	}, nil
+}
+
+// buildServiceScope: ParsedLineItemからServiceScopeを構築
+// （RegisterTariffUseCaseと同じロジック）
+func (uc *AddTariffVersionUseCase) buildServiceScope(
+	parsed parser.ParsedLineItem,
+) (scope.ServiceScope, error) {
+	switch parsed.ServiceScopeType {
+	case "LOCATION":
+		locationIDStr, ok := parsed.ServiceScopeAttrs["LocationID"]
+		if !ok {
+			return nil, errors.New("LocationID is required for LOCATION scope")
+		}
+		locationID, err := uuid.Parse(locationIDStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid LocationID: %w", err)
+		}
+
+		serviceType, ok := parsed.ServiceScopeAttrs["ServiceType"]
+		if !ok {
+			serviceType = "HANDLING"
+		}
+
+		return scope.LocationService{
+			LocationID:  route.LocationID(locationID),
+			ServiceType: serviceType,
+		}, nil
+
+	case "TRANSPORTATION":
+		originIDStr, ok := parsed.ServiceScopeAttrs["OriginID"]
+		if !ok {
+			return nil, errors.New("OriginID is required for TRANSPORTATION scope")
+		}
+		originID, err := uuid.Parse(originIDStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid OriginID: %w", err)
+		}
+
+		destIDStr, ok := parsed.ServiceScopeAttrs["DestinationID"]
+		if !ok {
+			return nil, errors.New("DestinationID is required for TRANSPORTATION scope")
+		}
+		destID, err := uuid.Parse(destIDStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid DestinationID: %w", err)
+		}
+
+		modeStr, ok := parsed.ServiceScopeAttrs["Mode"]
+		if !ok {
+			return nil, errors.New("Mode is required for TRANSPORTATION scope")
+		}
+		mode, err := uc.parseTransportMode(modeStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid transport mode: %w", err)
+		}
+
+		return scope.TransportationService{
+			OriginID:      route.LocationID(originID),
+			DestinationID: route.LocationID(destID),
+			Mode:          mode,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported service scope type: %s", parsed.ServiceScopeType)
+	}
+}
+
+// buildPricingStrategy: ParsedLineItemからPricingStrategyを構築
+// （RegisterTariffUseCaseと同じロジック）
+func (uc *AddTariffVersionUseCase) buildPricingStrategy(
+	parsed parser.ParsedLineItem,
+) (pricing.PricingStrategy, error) {
+	switch parsed.PricingType {
+	case "FLAT":
+		// FlatStrategyの構築（プレースホルダー）
+		return nil, errors.New("FlatStrategy construction not implemented (placeholder)")
+
+	case "CEL_EXPRESSION":
+		// CelExpressionStrategyの構築（プレースホルダー）
+		return nil, errors.New("CelExpressionStrategy construction not implemented (placeholder)")
+
+	default:
+		return nil, fmt.Errorf("unsupported pricing type: %s", parsed.PricingType)
+	}
+}
+
+// parseTransportMode: 文字列からTransportModeに変換
+func (uc *AddTariffVersionUseCase) parseTransportMode(modeStr string) (shared.TransportMode, error) {
+	validModes := map[string]shared.TransportMode{
+		"OCEAN":   shared.ModeOcean,
+		"AIR":     shared.ModeAir,
+		"TRUCK":   shared.ModeTruck,
+		"Railway": shared.ModeRailway,
+	}
+
+	mode, ok := validModes[modeStr]
+	if !ok {
+		return "", fmt.Errorf("invalid transport mode: %s", modeStr)
+	}
+
+	return mode, nil
+}
