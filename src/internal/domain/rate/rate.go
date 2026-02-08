@@ -147,6 +147,28 @@ func (r *Rate) MarkAsExpired() error {
 	return nil
 }
 
+// ReplaceEntryTariff: エントリのTariffIDを新しいTariffIDに差し替え（DRAFT状態でのみ可）
+func (r *Rate) ReplaceEntryTariff(entryID uuid.UUID, newTariffID uuid.UUID) error {
+	if r.status != RateStatusDraft {
+		return shared.NewDomainError(shared.ErrInvalidState, "entry tariffs can only be replaced in DRAFT status")
+	}
+	if newTariffID == uuid.Nil {
+		return shared.NewDomainError(shared.ErrInvalidArgument, "new tariffID is required")
+	}
+
+	for _, entry := range r.entries {
+		if entry.ID == entryID {
+			oldTariffID := entry.TariffID
+			entry.TariffID = newTariffID
+			r.UpdatedAt = time.Now()
+			r.RecordEvent(NewRateEntryTariffReplaced(r.ID, entryID, oldTariffID, newTariffID))
+			return nil
+		}
+	}
+
+	return shared.NewDomainError(shared.ErrNotFound, "entry not found")
+}
+
 // FindEntriesForRoute: ルートに一致するエントリを検索
 func (r *Rate) FindEntriesForRoute(originID, destID route.LocationID, mode shared.TransportMode) []*RateEntry {
 	var matched []*RateEntry

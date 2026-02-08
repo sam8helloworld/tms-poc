@@ -68,3 +68,47 @@ func (e *ApplyContractToRateError) WithDetail(key string, value any) *ApplyContr
 	e.Details[key] = value
 	return e
 }
+
+// UpdateRateEntryTariffInput: レートエントリのTariff差し替えの入力DTO
+type UpdateRateEntryTariffInput struct {
+	RateID       uuid.UUID // DRAFT状態のレートID
+	EntryID      uuid.UUID // 差し替え対象のエントリID
+	ContractID   uuid.UUID // 新TariffIDが所属する契約ID
+	NewTariffID  uuid.UUID // 新しいTariffID
+}
+
+// UpdateRateEntryTariffOutput: レートエントリのTariff差し替えの出力DTO
+type UpdateRateEntryTariffOutput struct {
+	RateID          uuid.UUID
+	RateStatus      string
+	EntryID         uuid.UUID
+	OldTariffID     uuid.UUID
+	NewTariffID     uuid.UUID
+	TotalEntryCount int
+}
+
+// UpdateRateEntryTariffError: レートエントリTariff差し替え時のエラー詳細
+type UpdateRateEntryTariffError struct {
+	Code    string
+	Message string
+	Details map[string]any
+}
+
+func (e *UpdateRateEntryTariffError) Error() string {
+	return e.Message
+}
+
+// NewUpdateRateEntryTariffError: UpdateRateEntryTariffErrorのファクトリー関数
+func NewUpdateRateEntryTariffError(code, message string) *UpdateRateEntryTariffError {
+	return &UpdateRateEntryTariffError{
+		Code:    code,
+		Message: message,
+		Details: make(map[string]any),
+	}
+}
+
+// WithDetail: エラーに詳細情報を追加
+func (e *UpdateRateEntryTariffError) WithDetail(key string, value any) *UpdateRateEntryTariffError {
+	e.Details[key] = value
+	return e
+}

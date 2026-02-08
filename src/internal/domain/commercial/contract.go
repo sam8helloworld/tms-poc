@@ -233,6 +233,32 @@ func (c *ServiceContract) canModifyTariffs() error {
 	return nil
 }
 
+// AddTariffAmendment: CONTRACTED状態の契約に対して料金表の改定版を追加
+// 既存のTariffの新バージョン（IsNewVersion() == true）のみ受け付ける
+// 既存Tariffの上書き・削除は不可
+func (c *ServiceContract) AddTariffAmendment(tariff *Tariff) error {
+	if c.status != ContractStatusContracted {
+		return shared.NewDomainError(shared.ErrInvalidState, "tariff amendments can only be added to CONTRACTED contracts")
+	}
+
+	if tariff == nil {
+		return shared.NewDomainError(shared.ErrInvalidArgument, "tariff is required")
+	}
+
+	if !tariff.IsNewVersion() {
+		return shared.NewDomainError(shared.ErrBusinessRuleViolation, "only new versions of existing tariffs can be added as amendments")
+	}
+
+	if err := tariff.Validate(); err != nil {
+		return err
+	}
+
+	c.tariffs = append(c.tariffs, tariff)
+	c.UpdatedAt = time.Now()
+	c.RecordEvent(NewTariffAmended(c.ID, tariff.ID, tariff.Name, tariff.Version, *tariff.BaseVersionID))
+	return nil
+}
+
 // FindTariffsByName: 指定された名前のすべてのTariffバージョンを取得
 func (c *ServiceContract) FindTariffsByName(name string) []*Tariff {
 	var result []*Tariff

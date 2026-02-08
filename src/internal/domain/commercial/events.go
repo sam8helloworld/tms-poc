@@ -40,3 +40,25 @@ func NewTariffRegistered(contractID, tariffID uuid.UUID, tariffName string, isUp
 		IsUpdate:   isUpdate,
 	}
 }
+
+// TariffAmended: CONTRACTED状態の契約に対する料金表改定イベント
+type TariffAmended struct {
+	shared.BaseEvent
+	TariffID     uuid.UUID
+	TariffName   string
+	NewVersion   int
+	BaseTariffID uuid.UUID
+	ContractID   uuid.UUID
+}
+
+// NewTariffAmended: TariffAmendedイベントを生成
+func NewTariffAmended(contractID, tariffID uuid.UUID, tariffName string, newVersion int, baseTariffID uuid.UUID) TariffAmended {
+	return TariffAmended{
+		BaseEvent:    shared.NewBaseEvent("TariffAmended", contractID, "ServiceContract"),
+		TariffID:     tariffID,
+		TariffName:   tariffName,
+		NewVersion:   newVersion,
+		BaseTariffID: baseTariffID,
+		ContractID:   contractID,
+	}
+}

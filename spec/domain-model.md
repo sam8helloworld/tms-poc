@@ -187,6 +187,7 @@ classDiagram
         +Validate() error
         +IsActive() bool
         +IsDraft() bool
+        +AddTariffAmendment(Tariff) error
     }
 
     class Tariff {
@@ -229,6 +230,16 @@ classDiagram
         +bool IsUpdate
     }
 
+    class TariffAmended {
+        <<Domain Event>>
+        +BaseEvent
+        +uuid.UUID TariffID
+        +string TariffName
+        +int NewVersion
+        +uuid.UUID BaseTariffID
+        +uuid.UUID ContractID
+    }
+
     %% ============================================
     %% Rate (社内レート集約)
     %% ============================================
@@ -257,6 +268,7 @@ classDiagram
         +RemoveEntry(uuid.UUID) error
         +Activate() error
         +MarkAsExpired() error
+        +ReplaceEntryTariff(uuid.UUID, uuid.UUID) error
         +FindEntriesForRoute(originID, destID, mode) RateEntry[]
     }
 
@@ -285,6 +297,14 @@ classDiagram
         <<Domain Event>>
         +BaseEvent
         +uuid.UUID EntryID
+    }
+
+    class RateEntryTariffReplaced {
+        <<Domain Event>>
+        +BaseEvent
+        +uuid.UUID EntryID
+        +uuid.UUID OldTariffID
+        +uuid.UUID NewTariffID
     }
 
     %% ============================================
@@ -762,6 +782,55 @@ classDiagram
         +string Message
     }
 
+    class AmendContractTariffUseCase {
+        +Execute(AmendContractTariffInput) AmendContractTariffOutput, error
+    }
+
+    class AmendContractTariffInput {
+        +io.Reader FileReader
+        +string FileFormat
+        +string FileName
+        +uuid.UUID ContractID
+        +uuid.UUID BaseTariffID
+        +uuid.UUID UploadedBy
+        +time.Time* EffectiveFrom
+        +time.Time* EffectiveTo
+    }
+
+    class AmendContractTariffOutput {
+        +uuid.UUID ContractID
+        +string ContractStatus
+        +uuid.UUID TariffID
+        +string TariffName
+        +int TariffVersion
+        +uuid.UUID BaseTariffID
+        +time.Time EffectiveFrom
+        +time.Time EffectiveTo
+        +int LineItemCount
+        +int TotalTariffCount
+        +string Message
+    }
+
+    class UpdateRateEntryTariffUseCase {
+        +Execute(UpdateRateEntryTariffInput) UpdateRateEntryTariffOutput, error
+    }
+
+    class UpdateRateEntryTariffInput {
+        +uuid.UUID RateID
+        +uuid.UUID EntryID
+        +uuid.UUID ContractID
+        +uuid.UUID NewTariffID
+    }
+
+    class UpdateRateEntryTariffOutput {
+        +uuid.UUID RateID
+        +string RateStatus
+        +uuid.UUID EntryID
+        +uuid.UUID OldTariffID
+        +uuid.UUID NewTariffID
+        +int TotalEntryCount
+    }
+
     %% ============================================
     %% Adapter (インフラ層インターフェース)
     %% ============================================
@@ -849,6 +918,8 @@ classDiagram
     ServiceContract *-- EventRecorder : embeds
     ServiceContract ..> ContractStatusChanged : emits
     ServiceContract ..> TariffRegistered : emits
+    ServiceContract ..> TariffAmended : emits
+    TariffAmended --> BaseEvent : extends
     Tariff o-- TariffLineItem : contains
     Tariff ..> DateRange : uses
     TariffLineItem --> ServiceScope : has
@@ -864,6 +935,8 @@ classDiagram
     Rate *-- EventRecorder : embeds
     Rate ..> RateActivated : emits
     Rate ..> RateEntryAdded : emits
+    Rate ..> RateEntryTariffReplaced : emits
+    RateEntryTariffReplaced --> BaseEvent : extends
     RateEntry --> RouteScope : has
     RouteScope --> Location : origin (optional)
     RouteScope --> Location : destination (optional)
@@ -993,6 +1066,18 @@ classDiagram
     RemoveTariffFromContractUseCase ..> RemoveTariffOutput : produces
     RemoveTariffFromContractUseCase ..> ServiceContractRepository : uses
     RemoveTariffFromContractUseCase ..> ServiceContract : updates
+    AmendContractTariffUseCase ..> AmendContractTariffInput : uses
+    AmendContractTariffUseCase ..> AmendContractTariffOutput : produces
+    AmendContractTariffUseCase ..> TariffParserFactory : uses
+    AmendContractTariffUseCase ..> ServiceContractRepository : uses
+    AmendContractTariffUseCase ..> Tariff : creates
+    AmendContractTariffUseCase ..> ServiceContract : updates
+    UpdateRateEntryTariffUseCase ..> UpdateRateEntryTariffInput : uses
+    UpdateRateEntryTariffUseCase ..> UpdateRateEntryTariffOutput : produces
+    UpdateRateEntryTariffUseCase ..> RateRepository : uses
+    UpdateRateEntryTariffUseCase ..> ServiceContractRepository : uses
+    UpdateRateEntryTariffUseCase ..> Rate : updates
+    UpdateRateEntryTariffUseCase ..> ServiceContract : reads
 
     %% Adapter Layer
     TariffParser ..> ParsedTariffData : produces
@@ -1028,7 +1113,8 @@ classDiagram
   - 入札プロセスにおいて物流企業から提示された料金情報を管理
   - ContractStatus: DRAFT（入札段階）→ CONTRACTED（契約成立）→ EXPIRED/CANCELLED
   - `status`, `tariffs` フィールドはprivateでgetter経由でアクセス
-  - EventRecorderを埋め込み、ContractStatusChanged / TariffRegistered イベントを発行
+  - EventRecorderを埋め込み、ContractStatusChanged / TariffRegistered / TariffAmended イベントを発行
+  - `AddTariffAmendment()`: CONTRACTED状態で料金表の改定版（新バージョン）を追加
   - **入札フロー**:
     1. CreateBidContractUseCase: DRAFT契約を作成
     2. RegisterTariffUseCase: 業者から提示された料金表を登録
@@ -1051,7 +1137,8 @@ classDiagram
   - 荷主が複数業者のTariffからルート単位で選択・組み合わせた通期レート
   - RateStatus: DRAFT（作成中）→ ACTIVE（使用可能）→ EXPIRED（期限切れ）
   - `status`, `entries` フィールドはprivateでgetter経由でアクセス
-  - EventRecorderを埋め込み、RateActivated / RateEntryAdded イベントを発行
+  - EventRecorderを埋め込み、RateActivated / RateEntryAdded / RateEntryTariffReplaced イベントを発行
+  - `ReplaceEntryTariff()`: DRAFT状態でエントリのTariffIDを新しいTariffIDに差し替え
 - **RateEntry**: レートの構成要素（特定の業者の特定のTariffをまるごと採用）
 - **RouteScope**: レートエントリの適用ルート範囲（値オブジェクト）
 
@@ -1138,9 +1225,16 @@ classDiagram
 - **RemoveTariffFromContractUseCase**: 料金表削除ユースケース
   - DRAFT状態の契約から料金表を削除
   - 不要な料金表を契約から除外
+- **AmendContractTariffUseCase**: 契約アメンドメント（料金表改定）ユースケース
+  - CONTRACTED状態の契約に対して料金表の改定版（新バージョン）を追加
+  - BAF等の市況変動や料金表の誤りにより、既に成立した契約の料金表を改定する
+  - NewTariffVersion()で新バージョンを作成し、AddTariffAmendment()で契約に追加
 - **ApplyContractToRateUseCase**: 契約反映ユースケース
   - CONTRACTED状態の契約から料金表（一部または全部）をDRAFT状態のRateに反映
   - contract.IsActive() でCONTRACTED状態を検証、contract.Tariffs() で料金表を取得
+- **UpdateRateEntryTariffUseCase**: レートエントリTariff差し替えユースケース
+  - DRAFT状態のRateのエントリのTariffIDを新しいTariffIDに差し替え
+  - 契約アメンドメント後にレートに反映する際に使用
 
 ### 13. Adapter Layer (インフラ層インターフェース)
 - **TariffParser**: 料金表ファイル解析インターフェース

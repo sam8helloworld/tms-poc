@@ -88,3 +88,71 @@ func (e *RegisterTariffError) WithCause(cause error) *RegisterTariffError {
 	e.Cause = cause
 	return e
 }
+
+// AmendContractTariffInput: 契約アメンドメント（料金表改定）の入力DTO
+type AmendContractTariffInput struct {
+	FileReader    io.Reader
+	FileFormat    string    // "csv", "excel", "json"
+	FileName      string
+	ContractID    uuid.UUID // CONTRACTED状態の契約ID
+	BaseTariffID  uuid.UUID // 改定元のTariffID
+	UploadedBy    uuid.UUID
+	EffectiveFrom *time.Time // 新バージョンの有効期間開始（オプション）
+	EffectiveTo   *time.Time // 新バージョンの有効期間終了（オプション）
+}
+
+// AmendContractTariffOutput: 契約アメンドメントの出力DTO
+type AmendContractTariffOutput struct {
+	ContractID       uuid.UUID
+	ContractStatus   string
+	TariffID         uuid.UUID
+	TariffName       string
+	TariffVersion    int
+	BaseTariffID     uuid.UUID
+	EffectiveFrom    time.Time
+	EffectiveTo      time.Time
+	LineItemCount    int
+	TotalTariffCount int
+	Message          string
+}
+
+// AmendTariffError: 契約アメンドメント時のエラー詳細
+type AmendTariffError struct {
+	Code    string
+	Message string
+	Details map[string]any
+	Cause   error
+}
+
+func (e *AmendTariffError) Error() string {
+	if e.Cause != nil {
+		return e.Message + ": " + e.Cause.Error()
+	}
+	return e.Message
+}
+
+// Unwrap: 原因エラーを取得
+func (e *AmendTariffError) Unwrap() error {
+	return e.Cause
+}
+
+// NewAmendTariffError: AmendTariffErrorのファクトリー関数
+func NewAmendTariffError(code, message string) *AmendTariffError {
+	return &AmendTariffError{
+		Code:    code,
+		Message: message,
+		Details: make(map[string]any),
+	}
+}
+
+// WithDetail: エラーに詳細情報を追加
+func (e *AmendTariffError) WithDetail(key string, value any) *AmendTariffError {
+	e.Details[key] = value
+	return e
+}
+
+// WithCause: 原因エラーを追加
+func (e *AmendTariffError) WithCause(cause error) *AmendTariffError {
+	e.Cause = cause
+	return e
+}
