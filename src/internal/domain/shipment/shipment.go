@@ -101,7 +101,11 @@ func (s *Shipment) TrackingUnitIDs() []uuid.UUID {
 // ShipmentPlan: 出荷計画情報 (Entity)
 // 予定ルート、貨物情報、使用する料金表を保持
 type ShipmentPlan struct {
-	// 物理ルート
+	// 基準とした標準ルートへの参照（任意）
+	// StandardRouteのコピー時点の内容をPlannedRouteに保持し、IDで追跡可能にする
+	StandardRouteID *uuid.UUID
+
+	// 物理ルート（StandardRouteからコピーされた計画値）
 	PlannedRoute route.PhysicalRoute
 
 	// 貨物明細
