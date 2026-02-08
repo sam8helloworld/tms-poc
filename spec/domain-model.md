@@ -4,6 +4,7 @@
 
 このドメインモデルは、国際物流SCMプラットフォームのコア設計を表現しています。
 商流（Shipment）と実行（TrackingUnit）を分離し、各時点での費用算出とGap分析を可能にします。
+ルート管理は「計画（StandardRoute）と実績（TrackingSegment）の分離」パターンを採用しています。
 
 ```mermaid
 classDiagram
@@ -65,6 +66,38 @@ classDiagram
             DestinationID: UUID
             Mode: TransportMode
             DistanceKm: Decimal
+        }
+
+        class StandardRoute["標準ルート<br/>(StandardRoute)"] {
+            <<Aggregate Root>>
+            ID: UUID
+            Name: String
+            ShipperID: UUID
+            OriginLocationID: UUID
+            DestinationLocationID: UUID
+            legs: StandardRouteLeg[]
+            status: StandardRouteStatus
+            StandardLeadTimeDays: Int
+            TargetCost: Money
+            ValidPeriod: DateRange
+            CreatedAt: Time
+            UpdatedAt: Time
+        }
+
+        class StandardRouteStatus["標準ルートステータス<br/>(StandardRouteStatus)"] {
+            <<enumeration>>
+            ACTIVE
+            ARCHIVED
+        }
+
+        class StandardRouteLeg["標準ルート区間<br/>(StandardRouteLeg)"] {
+            <<Value Object>>
+            SequenceOrder: Int
+            OriginLocationID: UUID
+            DestLocationID: UUID
+            TargetMode: TransportMode
+            StandardTransitDays: Int
+            MasterLaneID: UUID
         }
 
         class PhysicalRoute["物理ルート<br/>(PhysicalRoute)"] {
@@ -210,6 +243,7 @@ classDiagram
         }
 
         class ShipmentPlan["出荷計画<br/>(ShipmentPlan)"] {
+            StandardRouteID: UUID
             PlannedRoute: PhysicalRoute
             RateID: UUID
             TransportRequirements: Map
@@ -370,6 +404,10 @@ classDiagram
     %% ============================================
 
     %% Route Aggregate
+    StandardRoute "1" *-- "1..n" StandardRouteLeg : 含む
+    StandardRouteLeg --> Location : 出発地
+    StandardRouteLeg --> Location : 到着地
+    StandardRouteLeg --> Lane : 参照(任意)
     PhysicalRoute "1" *-- "1..n" RouteSegment : 含む
     RouteSegment --> Location : 出発地
     RouteSegment --> Location : 到着地
@@ -400,7 +438,8 @@ classDiagram
     Shipment "1" *-- "0..n" ShipmentItem : 含む
     Shipment "1" *-- "1" ShipmentCost : 含む
     Shipment --> TrackingUnit : 追跡参照
-    ShipmentPlan --> PhysicalRoute : 計画ルート
+    ShipmentPlan --> StandardRoute : 基準ルート参照(任意)
+    ShipmentPlan --> PhysicalRoute : 計画ルート(コピー)
     ShipmentPlan --> Rate : レート参照
     ShipmentItem --> TrackingUnit : 積載先参照(任意)
     ShipmentCost --> EstimatedCost : 見積費用(任意)
@@ -425,15 +464,19 @@ classDiagram
     CostLineItem ..> Money : uses
 
     %% Notes (ビジネスルール・制約)
+    note for StandardRoute "・荷主が管理する「標準ルート」（規範: Prescriptive）<br/>・入札（RFQ）、予算策定、発注時の指定に使用<br/>・ステータス遷移: ACTIVE → ARCHIVED<br/>・legs, statusフィールドはprivate、getter経由でアクセス<br/>・発注時にPlannedRoute(PhysicalRoute)としてコピーされる<br/>・StandardLeadTimeDays: 全体の目標リードタイム<br/>・TargetCost: 予算上の目標費用（任意）"
+
+    note for StandardRouteLeg "・計画コンテキスト専用の区間VO<br/>・TargetMode: この区間で想定する輸送モード<br/>・StandardTransitDays: この区間の目標所要日数<br/>・RouteSegment（実データ向け）とは異なる関心事を持つ"
+
     note for ServiceContract "・ステータス遷移: DRAFT → CONTRACTED → EXPIRED/CANCELLED<br/>・DRAFT状態: 入札段階で複数業者から料金表を受領<br/>・CONTRACTED状態: 契約成立後、AddTariffAmendmentで料金表改定可能<br/>・tariffs, statusフィールドはprivate、getter経由でアクセス"
 
     note for Tariff "・バージョン管理: 同じ名前でもVersionが異なれば別レコード<br/>・Version=1, BaseVersionID=nil: 初版<br/>・Version>1, BaseVersionID設定: 改定版<br/>・ServiceContract集約内のエンティティ（ContractIDフィールドなし）"
 
     note for Rate "・ステータス遷移: DRAFT → ACTIVE → EXPIRED<br/>・複数業者のTariffからルート単位で選択・組み合わせた社内レート<br/>・DRAFT状態: エントリ追加・削除・Tariff差し替え可能<br/>・ACTIVE状態: エントリの変更不可<br/>・entries, statusフィールドはprivate、getter経由でアクセス"
 
-    note for Shipment "・計画（PlannedRoute）の管理者<br/>・TrackingUnitへの参照はIDのみ保持（集約境界）<br/>・ShipmentStatusはTrackingUnitの状態から導出（Derived Status）<br/>・trackingUnitIDs, status, costフィールドはprivate、getter経由でアクセス"
+    note for Shipment "・計画（PlannedRoute）の管理者<br/>・StandardRouteIDで基準とした標準ルートを追跡可能<br/>・TrackingUnitへの参照はIDのみ保持（集約境界）<br/>・ShipmentStatusはTrackingUnitの状態から導出（Derived Status）<br/>・trackingUnitIDs, status, costフィールドはprivate、getter経由でアクセス"
 
-    note for TrackingUnit "・実績の記録者（計画への参照を持たない）<br/>・物理的な輸送単位（コンテナ1本、トラック1台など）<br/>・currentStatusは全セグメントの状態から再計算<br/>・segments, currentStatusフィールドはprivate、getter経由でアクセス"
+    note for TrackingUnit "・実績の記録者（計画への参照を持たない）<br/>・物理的な輸送単位（コンテナ1本、トラック1台など）<br/>・TrackingSegmentが実績ルート（ActualRoute）の実体<br/>・currentStatusは全セグメントの状態から再計算<br/>・segments, currentStatusフィールドはprivate、getter経由でアクセス"
 
     note for RouteScope "・レートエントリの適用ルート範囲を定義<br/>・OriginID=nil: 全出発地に適用<br/>・DestinationID=nil: 全到着地に適用<br/>・TransportMode=nil: 全輸送モードに適用"
 
@@ -452,7 +495,17 @@ classDiagram
 ### 2. Route Aggregate (ルーティング集約)
 - **Location**: 物理的な拠点（港、倉庫、空港など）
 - **Lane**: 2点間の物理的な輸送路（マスターデータ）
+- **StandardRoute**: 荷主が管理する「標準ルート」（集約ルート）
+  - 入札、予算策定、発注時の指定、リードタイム基準値の設定に使用
+  - 性質: 「規範（Prescriptive）」 - あるべき姿を定義するマスタデータ
+  - StandardRouteStatus: ACTIVE → ARCHIVED
+  - `legs`, `status` フィールドはprivateでgetter経由でアクセス
+  - 発注時に `PhysicalRoute` としてコピーされ、`ShipmentPlan` に保持される
+- **StandardRouteLeg**: 標準ルートの1区間（値オブジェクト）
+  - 計画コンテキスト専用の属性（目標モード、目標所要日数）を持つ
+  - `RouteSegment`（実データ向け）とは異なる関心事を持つ
 - **PhysicalRoute**: 順序を持った区間の集合体（Origin→Destination）
+  - Shipment発注時に `StandardRoute` からコピーされた計画値
 - **RouteSegment**: A地点からB地点への移動を表す最小単位
 
 ### 3. Commercial Aggregate (商取引集約)
@@ -486,7 +539,10 @@ classDiagram
 - **Shipment**: 出荷案件（集約ルート）
   - 荷主視点での「1つの仕事」を表現
   - `status`, `cost`, `trackingUnitIDs` フィールドはprivateでgetter経由でアクセス
-- **ShipmentPlan**: 計画情報（エンティティ）。RateIDで社内レートを参照
+- **ShipmentPlan**: 計画情報（エンティティ）
+  - `StandardRouteID`: 基準とした標準ルートへのID参照（追跡可能性の確保）
+  - `PlannedRoute`: StandardRouteからコピーされた計画値（PhysicalRoute VO）
+  - `RateID`: 社内レートへの参照
 - **ShipmentItem**: 貨物明細（エンティティ）
 - **ShipmentCost**: 費用情報（エンティティ）
 
@@ -494,7 +550,9 @@ classDiagram
 - **TrackingUnit**: 追跡単位（集約ルート）
   - `currentStatus`, `segments` フィールドはprivateでgetter経由でアクセス
   - 計画への参照を持たない：純粋な実績記録にフォーカス
+  - `TrackingSegment` の集合が実績ルート（ActualRoute）の実体となる
 - **TrackingSegment**: 実際に発生した移動区間（エンティティ）
+  - 実績コンテキスト専用の属性（実績日時、キャリア追跡番号、情報源）を持つ
 - **TrackingEvent**: 追跡イベント（値オブジェクト）
 
 ### 7. Cost (費用関連)
@@ -514,6 +572,7 @@ classDiagram
    - ShipmentとTrackingUnitを独立した集約として分離
    - ServiceContractを集約ルートとしてTariffを管理
    - Rateを集約ルートとしてRateEntryを管理（複数業者のTariffを組み合わせた社内レート）
+   - StandardRouteを集約ルートとして荷主管理ルートを独立管理
    - 集約間の参照はIDのみ（疎結合）
 
 2. **カプセル化**:
@@ -521,13 +580,50 @@ classDiagram
    - getter メソッドで安全にアクセス（コレクションはコピー返却）
    - ファクトリ関数でバリデーション付き生成
 
-3. **関心の分離**: 計画と実績の明確な分離
-   - **Shipment**: 計画（PlannedRoute）の管理者
-   - **TrackingUnit**: 実績の記録者（計画への参照を持たない）
+3. **計画と実績の分離（Plan vs Actual）**:
+   - **StandardRoute**: 荷主管理の「規範（Prescriptive）」ルート。あるべき姿
+   - **PhysicalRoute（PlannedRoute）**: 発注時にStandardRouteからコピーされた計画値。当時の計画を保持
+   - **TrackingSegment**: 物流企業の「記述（Descriptive）」実績。起きた事実
+   - 3者を独立させることで、マスタ改定が過去の計画に影響しない
 
-4. **Value Object**: Money（通貨一致チェック付き演算）, DateRange（期間表現）, RouteScope（ルート適用範囲）
+4. **ルート関連の型の使い分け**:
+   - **StandardRouteLeg**: 計画コンテキスト向け（目標モード、目標日数）
+   - **RouteSegment**: 発注時の計画値（物理情報: 距離、モード、拠点タイプ）
+   - **TrackingSegment**: 実績コンテキスト向け（実績日時、キャリア情報、追跡番号）
 
-5. **バージョン管理**: Tariffのバージョン管理により料金表の改定履歴を保持
+5. **Value Object**: Money（通貨一致チェック付き演算）, DateRange（期間表現）, RouteScope（ルート適用範囲）, StandardRouteLeg（標準ルート区間）
+
+6. **バージョン管理**: Tariffのバージョン管理により料金表の改定履歴を保持
+
+## ルート管理のライフサイクル
+
+### 1. 計画フェーズ
+```
+SCM部がStandardRouteを作成・メンテナンス → 入札に利用
+```
+
+### 2. 発注フェーズ
+```
+StandardRoute →(コピー)→ ShipmentPlan.PlannedRoute (PhysicalRoute VO)
+                           ShipmentPlan.StandardRouteID で追跡
+```
+
+### 3. 実行フェーズ
+```
+物流企業が輸送実行 → TrackingUnit.TrackingSegment[] が実績ルートとして蓄積
+```
+
+### 4. 分析フェーズ（予実管理）
+```
+RouteDeviationService:
+  ShipmentPlan.PlannedRoute vs TrackingUnit.Segments → 逸脱検知
+  （ルート逸脱、抜港、積み替え等の自動チェック）
+```
+
+### 5. フィードバック
+```
+分析結果 → 次期のStandardRouteの見直しに反映
+```
 
 ## 費用計算の流れ
 
