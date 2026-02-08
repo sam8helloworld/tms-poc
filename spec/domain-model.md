@@ -148,7 +148,6 @@ classDiagram
             ShipperID: UUID
             status: ContractStatus
             ValidPeriod: DateRange
-            tariffs: Tariff[]
             CreatedAt: Time
             UpdatedAt: Time
         }
@@ -160,13 +159,22 @@ classDiagram
             EXPIRED
             CANCELLED
         }
+    }
 
+    %% ============================================
+    %% Tariff Aggregate (料金表集約)
+    %% ============================================
+    namespace 料金表集約 {
         class Tariff["料金表<br/>(Tariff)"] {
+            <<Aggregate Root>>
             ID: UUID
+            ContractID: UUID
             Name: String
             Version: Int
             BaseVersionID: UUID
             EffectiveDate: DateRange
+            CreatedAt: Time
+            UpdatedAt: Time
         }
 
         class TariffLineItem["料金項目<br/>(TariffLineItem)"] {
@@ -417,12 +425,14 @@ classDiagram
 
     %% Commercial Aggregate
     ServiceContract --> LogisticsProvider : 業者参照
-    ServiceContract "1" *-- "0..n" Tariff : 含む
+    LogisticsProvider ..> ProviderType : uses
+
+    %% Tariff Aggregate
+    Tariff --> ServiceContract : 契約参照(ContractID)
     Tariff "1" *-- "1..n" TariffLineItem : 含む
     Tariff --> Tariff : バージョン元(任意)
     TariffLineItem --> ServiceScope : 適用範囲
     TariffLineItem --> PricingStrategy : 計算ロジック
-    LogisticsProvider ..> ProviderType : uses
 
     %% Rate Aggregate
     Rate "1" *-- "0..n" RateEntry : 含む
@@ -468,9 +478,9 @@ classDiagram
 
     note for StandardRouteLeg "・計画コンテキスト専用の区間VO<br/>・TargetMode: この区間で想定する輸送モード<br/>・StandardTransitDays: この区間の目標所要日数<br/>・RouteSegment（実データ向け）とは異なる関心事を持つ"
 
-    note for ServiceContract "・ステータス遷移: DRAFT → CONTRACTED → EXPIRED/CANCELLED<br/>・DRAFT状態: 入札段階で複数業者から料金表を受領<br/>・CONTRACTED状態: 契約成立後、AddTariffAmendmentで料金表改定可能<br/>・tariffs, statusフィールドはprivate、getter経由でアクセス"
+    note for ServiceContract "・ステータス遷移: DRAFT → CONTRACTED → EXPIRED/CANCELLED<br/>・DRAFT状態: 入札段階で複数業者から料金表を受領<br/>・CONTRACTED状態: 契約成立後も料金表改定可能<br/>・statusフィールドはprivate、getter経由でアクセス<br/>・料金表(Tariff)は独立集約として分離（ContractIDで参照）"
 
-    note for Tariff "・バージョン管理: 同じ名前でもVersionが異なれば別レコード<br/>・Version=1, BaseVersionID=nil: 初版<br/>・Version>1, BaseVersionID設定: 改定版<br/>・ServiceContract集約内のエンティティ（ContractIDフィールドなし）"
+    note for Tariff "・独立した集約ルート（ContractIDで契約を参照）<br/>・バージョン管理: 同じ名前でもVersionが異なれば別レコード<br/>・Version=1, BaseVersionID=nil: 初版<br/>・Version>1, BaseVersionID設定: 改定版<br/>・EventRecorder埋め込みでドメインイベント記録"
 
     note for Rate "・ステータス遷移: DRAFT → ACTIVE → EXPIRED<br/>・複数業者のTariffからルート単位で選択・組み合わせた社内レート<br/>・DRAFT状態: エントリ追加・削除・Tariff差し替え可能<br/>・ACTIVE状態: エントリの変更不可<br/>・entries, statusフィールドはprivate、getter経由でアクセス"
 
@@ -510,18 +520,22 @@ classDiagram
 
 ### 3. Commercial Aggregate (商取引集約)
 - **ServiceContract**: 契約（集約ルート）
-  - 入札プロセスにおいて物流企業から提示された料金情報を管理
+  - 入札プロセスにおいて物流企業との契約情報を管理
   - ContractStatus: DRAFT（入札段階）→ CONTRACTED（契約成立）→ EXPIRED/CANCELLED
-  - `status`, `tariffs` フィールドはprivateでgetter経由でアクセス
+  - `status` フィールドはprivateでgetter経由でアクセス
+  - 料金表(Tariff)は独立集約として分離（ContractIDで参照）
   - **入札フロー**:
     1. DRAFT契約を作成
-    2. 業者から提示された料金表を登録
+    2. 業者から提示された料金表を登録（Tariff集約として保存）
     3. 荷主が各DRAFT契約を比較検討
     4. 最適な契約を正式化（CONTRACTED）
     5. 他の契約をキャンセル（CANCELLED）
 - **LogisticsProvider**: 物流企業（キャリア、フォワーダーなど）
-- **Tariff**: 料金表（契約に紐づく料金項目の集合）
-  - ServiceContract集約内のエンティティ（ContractIDフィールドは持たない）
+
+### 3.5. Tariff Aggregate (料金表集約)
+- **Tariff**: 料金表（独立した集約ルート）
+  - ContractIDで所属するサービス契約を参照（ID参照による疎結合）
+  - EventRecorder埋め込みでドメインイベントを記録
   - **バージョン管理**: 同じ業者から改定版の料金表を受け取った場合、履歴を保持
     - `Version`: バージョン番号（1, 2, 3...）
     - `BaseVersionID`: 元となったTariffのID（初版の場合はnil）
@@ -570,7 +584,8 @@ classDiagram
 
 1. **Aggregate分離と境界**:
    - ShipmentとTrackingUnitを独立した集約として分離
-   - ServiceContractを集約ルートとしてTariffを管理
+   - ServiceContractは契約ステータス管理に専念（料金表はTariff集約に分離）
+   - Tariffを独立した集約ルートとして管理（ContractIDで契約を参照）
    - Rateを集約ルートとしてRateEntryを管理（複数業者のTariffを組み合わせた社内レート）
    - StandardRouteを集約ルートとして荷主管理ルートを独立管理
    - 集約間の参照はIDのみ（疎結合）

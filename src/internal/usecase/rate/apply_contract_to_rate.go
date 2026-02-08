@@ -23,16 +23,19 @@ type ApplyContractToRateUseCase struct {
 	// 本来利用すべきリポジトリ（コメントアウト）
 	// rateRepo     domainrate.RateRepository
 	// contractRepo commercial.ServiceContractRepository
+	// tariffRepo   commercial.TariffRepository
 }
 
 // NewApplyContractToRateUseCase: ApplyContractToRateUseCaseのコンストラクタ
 func NewApplyContractToRateUseCase(
 // rateRepo domainrate.RateRepository,
 // contractRepo commercial.ServiceContractRepository,
+// tariffRepo commercial.TariffRepository,
 ) *ApplyContractToRateUseCase {
 	return &ApplyContractToRateUseCase{
 		// rateRepo:     rateRepo,
 		// contractRepo: contractRepo,
+		// tariffRepo:   tariffRepo,
 	}
 }
 
@@ -158,13 +161,17 @@ func (uc *ApplyContractToRateUseCase) getContractedContract(
 
 // resolveTargetTariffs: 対象の料金表を特定
 // TariffIDsが空の場合は契約内の全Tariffを対象とする
+// 注: 本来はtariffRepoを使用する（コメントアウト）
 func (uc *ApplyContractToRateUseCase) resolveTargetTariffs(
 	contract *commercial.ServiceContract,
 	tariffIDs []uuid.UUID,
 ) ([]*commercial.Tariff, error) {
-	allTariffs := contract.Tariffs()
+	// 本来の実装:
+	// allTariffs, err := uc.tariffRepo.FindByContractID(ctx, contract.ID)
+	// コメントアウト中のため空のリストで代替
+	var allTariffs []*commercial.Tariff
 
-	if len(allTariffs) == 0 {
+	if len(allTariffs) == 0 && len(tariffIDs) == 0 {
 		return nil, NewApplyContractToRateError(
 			"NO_TARIFFS",
 			"contract has no tariffs",
@@ -177,6 +184,23 @@ func (uc *ApplyContractToRateUseCase) resolveTargetTariffs(
 	}
 
 	// TariffIDs指定: 指定されたTariffのみ対象
+	// 本来の実装:
+	// result := make([]*commercial.Tariff, 0, len(tariffIDs))
+	// for _, id := range tariffIDs {
+	// 	tariff, err := uc.tariffRepo.FindByID(ctx, id)
+	// 	if err != nil || tariff == nil {
+	// 		return nil, NewApplyContractToRateError(
+	// 			"TARIFF_NOT_FOUND",
+	// 			fmt.Sprintf("tariff %s not found in contract %s", id, contract.ID),
+	// 		).
+	// 			WithDetail("tariffID", id).
+	// 			WithDetail("contractID", contract.ID)
+	// 	}
+	// 	result = append(result, tariff)
+	// }
+	// return result, nil
+
+	// コメントアウト中のため空のリストで代替
 	tariffMap := make(map[uuid.UUID]*commercial.Tariff, len(allTariffs))
 	for _, t := range allTariffs {
 		tariffMap[t.ID] = t

@@ -10,37 +10,49 @@ import (
 	"github.com/sam8helloworld/tms-poc/internal/domain/shared"
 )
 
-// Tariff: 料金表 (Rate Book / Catalog)
-// 1つの契約の下にぶら下がる、大量の料金項目の集合体
-// ServiceContract集約内のエンティティとして管理される
+// Tariff: 料金表 (Rate Book / Catalog) — 集約ルート
+// 大量の料金項目 (TariffLineItem) を持つ独立した集約。
+// ContractID でサービス契約を参照する（ID参照による疎結合）。
 // バージョン管理: 同じ名前のTariffでも改定があった場合は新しいレコードとして追加される
 type Tariff struct {
+	shared.EventRecorder
+
 	ID            uuid.UUID
-	Name          string // e.g. "2026 Japan Export"
-	Version       int    // バージョン番号（1, 2, 3...）
+	ContractID    uuid.UUID  // 所属するサービス契約のID
+	Name          string     // e.g. "2026 Japan Export"
+	Version       int        // バージョン番号（1, 2, 3...）
 	BaseVersionID *uuid.UUID // 元となったTariffのID（初版の場合はnil）
 	EffectiveDate shared.DateRange
 
 	// LineItems: 個別の料金定義のリスト
 	LineItems []TariffLineItem
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // NewTariff: Tariffのファクトリー関数（初版）
 // ドメイン不変条件を保証した状態でTariffを生成する
 func NewTariff(
 	name string,
+	contractID uuid.UUID,
 	effectiveFrom time.Time,
 	effectiveTo time.Time,
 ) (*Tariff, error) {
 	if name == "" {
 		return nil, shared.NewDomainError(shared.ErrInvalidArgument, "tariff name is required")
 	}
+	if contractID == uuid.Nil {
+		return nil, shared.NewDomainError(shared.ErrInvalidArgument, "contract ID is required")
+	}
 	if effectiveFrom.After(effectiveTo) {
 		return nil, shared.NewDomainError(shared.ErrInvalidArgument, "effective date range is invalid: from must be before or equal to to")
 	}
 
+	now := time.Now()
 	return &Tariff{
 		ID:            uuid.New(),
+		ContractID:    contractID,
 		Name:          name,
 		Version:       1, // 初版はバージョン1
 		BaseVersionID: nil, // 初版なのでnil
@@ -49,6 +61,8 @@ func NewTariff(
 			To:   effectiveTo,
 		},
 		LineItems: make([]TariffLineItem, 0),
+		CreatedAt: now,
+		UpdatedAt: now,
 	}, nil
 }
 
@@ -66,8 +80,10 @@ func NewTariffVersion(
 		return nil, shared.NewDomainError(shared.ErrInvalidArgument, "effective date range is invalid: from must be before or equal to to")
 	}
 
+	now := time.Now()
 	return &Tariff{
 		ID:            uuid.New(),
+		ContractID:    baseTariff.ContractID, // 契約IDは継承
 		Name:          baseTariff.Name, // 名前は同じ
 		Version:       baseTariff.Version + 1, // バージョンをインクリメント
 		BaseVersionID: &baseTariff.ID, // 元のTariffを参照
@@ -76,6 +92,8 @@ func NewTariffVersion(
 			To:   effectiveTo,
 		},
 		LineItems: make([]TariffLineItem, 0),
+		CreatedAt: now,
+		UpdatedAt: now,
 	}, nil
 }
 
@@ -105,6 +123,9 @@ func (t *Tariff) AddLineItem(item TariffLineItem) error {
 func (t *Tariff) Validate() error {
 	if t.ID == uuid.Nil {
 		return shared.NewDomainError(shared.ErrInvalidArgument, "tariff ID is required")
+	}
+	if t.ContractID == uuid.Nil {
+		return shared.NewDomainError(shared.ErrInvalidArgument, "contract ID is required")
 	}
 	if t.Name == "" {
 		return shared.NewDomainError(shared.ErrInvalidArgument, "tariff name is required")

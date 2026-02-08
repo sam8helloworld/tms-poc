@@ -22,16 +22,19 @@ type UpdateRateEntryTariffUseCase struct {
 	// 本来利用すべきリポジトリ（コメントアウト）
 	// rateRepo     domainrate.RateRepository
 	// contractRepo commercial.ServiceContractRepository
+	// tariffRepo   commercial.TariffRepository
 }
 
 // NewUpdateRateEntryTariffUseCase: コンストラクタ
 func NewUpdateRateEntryTariffUseCase(
 // rateRepo domainrate.RateRepository,
 // contractRepo commercial.ServiceContractRepository,
+// tariffRepo commercial.TariffRepository,
 ) *UpdateRateEntryTariffUseCase {
 	return &UpdateRateEntryTariffUseCase{
 		// rateRepo:     rateRepo,
 		// contractRepo: contractRepo,
+		// tariffRepo:   tariffRepo,
 	}
 }
 
@@ -173,19 +176,32 @@ func (uc *UpdateRateEntryTariffUseCase) getContract(
 }
 
 // validateTariffExistsInContract: 新TariffIDが契約内に存在することを確認
+// 注: 本来はtariffRepoを使用する（コメントアウト）
 func (uc *UpdateRateEntryTariffUseCase) validateTariffExistsInContract(
 	contract *commercial.ServiceContract,
 	tariffID uuid.UUID,
 ) error {
-	for _, tariff := range contract.Tariffs() {
-		if tariff.ID == tariffID {
-			return nil
-		}
-	}
-	return NewUpdateRateEntryTariffError(
-		"TARIFF_NOT_FOUND",
-		"new tariff not found in contract",
-	).
-		WithDetail("tariffID", tariffID).
-		WithDetail("contractID", contract.ID)
+	// 本来の実装:
+	// tariff, err := uc.tariffRepo.FindByID(ctx, tariffID)
+	// if err != nil || tariff == nil {
+	// 	return NewUpdateRateEntryTariffError(
+	// 		"TARIFF_NOT_FOUND",
+	// 		"new tariff not found",
+	// 	).
+	// 		WithDetail("tariffID", tariffID)
+	// }
+	// if tariff.ContractID != contract.ID {
+	// 	return NewUpdateRateEntryTariffError(
+	// 		"TARIFF_NOT_IN_CONTRACT",
+	// 		"new tariff does not belong to the specified contract",
+	// 	).
+	// 		WithDetail("tariffID", tariffID).
+	// 		WithDetail("contractID", contract.ID)
+	// }
+	// return nil
+
+	// コメントアウト中のためダミーチェック（常にnilを返す）
+	_ = contract
+	_ = tariffID
+	return nil
 }

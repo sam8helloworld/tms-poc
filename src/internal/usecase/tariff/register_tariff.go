@@ -30,6 +30,7 @@ type RegisterTariffUseCase struct {
 
 	// 本来利用すべきリポジトリ（コメントアウト）
 	// contractRepo commercial.ServiceContractRepository
+	// tariffRepo   commercial.TariffRepository
 }
 
 // NewRegisterTariffUseCase: RegisterTariffUseCaseのコンストラクタ
@@ -37,11 +38,13 @@ func NewRegisterTariffUseCase(
 	parserFactory parser.TariffParserFactory,
 	validator parser.TariffDataValidator,
 	// contractRepo commercial.ServiceContractRepository,
+	// tariffRepo commercial.TariffRepository,
 ) *RegisterTariffUseCase {
 	return &RegisterTariffUseCase{
 		parserFactory: parserFactory,
 		validator:     validator,
 		// contractRepo:  contractRepo,
+		// tariffRepo:    tariffRepo,
 	}
 }
 
@@ -76,25 +79,33 @@ func (uc *RegisterTariffUseCase) Execute(
 	}
 
 	// 5. ドメインモデルへの変換
-	tariff, err := uc.convertToTariff(parsedData)
+	tariff, err := uc.convertToTariff(parsedData, contract.ID)
 	if err != nil {
 		return nil, NewRegisterTariffError("CONVERSION_ERROR", err.Error())
 	}
 
-	// 6. 契約にTariffを追加または更新
-	// この時点で契約のバリデーションも実行される
-	isUpdated := uc.tariffExistsInContract(contract, tariff)
-	if err := contract.AddOrUpdateTariff(tariff); err != nil {
-		return nil, NewRegisterTariffError("ADD_TARIFF_ERROR", err.Error())
-	}
+	// 6. 重複チェック（コメントアウト）
+	// existingTariffs, _ := uc.tariffRepo.FindByContractID(ctx, contract.ID)
+	// isUpdated := uc.tariffExistsInList(existingTariffs, tariff)
+	isUpdated := false
 
-	// 7. 永続化（コメントアウト）
+	// 7. Tariffを永続化（コメントアウト）
+	// if err := uc.tariffRepo.Save(ctx, tariff); err != nil {
+	// 	return nil, NewRegisterTariffError("SAVE_ERROR", err.Error()).
+	// 		WithDetail("tariffID", tariff.ID)
+	// }
+
+	// 8. 契約を永続化（コメントアウト）
 	// if err := uc.contractRepo.Save(ctx, contract); err != nil {
 	// 	return nil, NewRegisterTariffError("SAVE_ERROR", err.Error()).
 	// 		WithDetail("contractID", contract.ID)
 	// }
 
-	// 8. 出力DTOの作成
+	// 9. Tariff件数取得（コメントアウト）
+	// totalTariffCount, _ := uc.tariffRepo.CountByContractID(ctx, contract.ID)
+	totalTariffCount := 1
+
+	// 10. 出力DTOの作成
 	output := &RegisterTariffOutput{
 		ContractID:       contract.ID,
 		ContractStatus:   string(contract.Status()),
@@ -106,7 +117,7 @@ func (uc *RegisterTariffUseCase) Execute(
 		CreatedAt:        time.Now(),
 		IsNewContract:    isNewContract,
 		IsUpdatedTariff:  isUpdated,
-		TotalTariffCount: contract.TariffCount(),
+		TotalTariffCount: totalTariffCount,
 	}
 
 	return output, nil
@@ -194,12 +205,12 @@ func (uc *RegisterTariffUseCase) getOrCreateContract(
 	return contract, true, nil
 }
 
-// tariffExistsInContract: 契約内に同じTariffが存在するかチェック
-func (uc *RegisterTariffUseCase) tariffExistsInContract(
-	contract *commercial.ServiceContract,
+// tariffExistsInList: Tariffリスト内に同じTariffが存在するかチェック
+func (uc *RegisterTariffUseCase) tariffExistsInList(
+	tariffs []*commercial.Tariff,
 	tariff *commercial.Tariff,
 ) bool {
-	for _, existing := range contract.Tariffs() {
+	for _, existing := range tariffs {
 		if existing.Name == tariff.Name &&
 			existing.EffectiveDate.From.Equal(tariff.EffectiveDate.From) &&
 			existing.EffectiveDate.To.Equal(tariff.EffectiveDate.To) {
@@ -249,10 +260,12 @@ func (uc *RegisterTariffUseCase) buildValidationError(result *parser.ValidationR
 // convertToTariff: 解析データをドメインモデルに変換
 func (uc *RegisterTariffUseCase) convertToTariff(
 	data *parser.ParsedTariffData,
+	contractID uuid.UUID,
 ) (*commercial.Tariff, error) {
-	// Tariff生成（ServiceContract集約内のエンティティとして管理される）
+	// Tariff生成（独立した集約ルートとしてContractIDで契約を参照）
 	tariff, err := commercial.NewTariff(
 		data.TariffName,
+		contractID,
 		data.EffectiveFrom,
 		data.EffectiveTo,
 	)

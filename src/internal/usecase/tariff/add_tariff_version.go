@@ -47,16 +47,19 @@ type AddTariffVersionOutput struct {
 // 同じ名前のTariffの改定版を受け取った場合、履歴を保持しつつ新バージョンとして追加する
 type AddTariffVersionUseCase struct {
 	contractRepo  commercial.ServiceContractRepository
+	tariffRepo    commercial.TariffRepository
 	parserFactory parser.TariffParserFactory
 }
 
 // NewAddTariffVersionUseCase: コンストラクタ
 func NewAddTariffVersionUseCase(
 	contractRepo commercial.ServiceContractRepository,
+	tariffRepo commercial.TariffRepository,
 	parserFactory parser.TariffParserFactory,
 ) *AddTariffVersionUseCase {
 	return &AddTariffVersionUseCase{
 		contractRepo:  contractRepo,
+		tariffRepo:    tariffRepo,
 		parserFactory: parserFactory,
 	}
 }
@@ -82,15 +85,14 @@ func (uc *AddTariffVersionUseCase) Execute(
 	}
 
 	// 2. ベースとなるTariffを取得
-	var baseTariff *commercial.Tariff
-	for _, tariff := range contract.Tariffs() {
-		if tariff.ID == input.BaseTariffID {
-			baseTariff = tariff
-			break
-		}
+	baseTariff, err := uc.tariffRepo.FindByID(ctx, input.BaseTariffID)
+	if err != nil || baseTariff == nil {
+		return nil, NewRegisterTariffError("BASE_TARIFF_NOT_FOUND", "base tariff not found").
+			WithDetail("baseTariffID", input.BaseTariffID).
+			WithDetail("contractID", input.ContractID)
 	}
-	if baseTariff == nil {
-		return nil, NewRegisterTariffError("BASE_TARIFF_NOT_FOUND", "base tariff not found in contract").
+	if baseTariff.ContractID != input.ContractID {
+		return nil, NewRegisterTariffError("BASE_TARIFF_NOT_IN_CONTRACT", "base tariff does not belong to the specified contract").
 			WithDetail("baseTariffID", input.BaseTariffID).
 			WithDetail("contractID", input.ContractID)
 	}
@@ -152,15 +154,16 @@ func (uc *AddTariffVersionUseCase) Execute(
 		}
 	}
 
-	// 7. 契約に新バージョンを追加
-	if err := contract.AddOrUpdateTariff(newTariff); err != nil {
-		return nil, NewRegisterTariffError("ADD_TARIFF_ERROR", "failed to add tariff to contract").
+	// 7. Tariffを保存
+	if err := uc.tariffRepo.Save(ctx, newTariff); err != nil {
+		return nil, NewRegisterTariffError("SAVE_ERROR", "failed to save tariff").
 			WithCause(err)
 	}
 
-	// 8. 契約を保存
-	if err := uc.contractRepo.Save(ctx, contract); err != nil {
-		return nil, NewRegisterTariffError("SAVE_ERROR", "failed to save contract").
+	// 8. Tariff件数を取得
+	totalTariffCount, err := uc.tariffRepo.CountByContractID(ctx, contract.ID)
+	if err != nil {
+		return nil, NewRegisterTariffError("COUNT_ERROR", "failed to count tariffs").
 			WithCause(err)
 	}
 
@@ -175,7 +178,7 @@ func (uc *AddTariffVersionUseCase) Execute(
 		EffectiveFrom:    newTariff.EffectiveDate.From,
 		EffectiveTo:      newTariff.EffectiveDate.To,
 		LineItemCount:    len(newTariff.LineItems),
-		TotalTariffCount: contract.TariffCount(),
+		TotalTariffCount: totalTariffCount,
 		Message:          "New tariff version added successfully. Old version is retained for history.",
 	}, nil
 }

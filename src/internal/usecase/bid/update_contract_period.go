@@ -32,14 +32,17 @@ type UpdateContractPeriodOutput struct {
 // DRAFT状態の契約の有効期間（ValidPeriod）を変更する
 type UpdateContractPeriodUseCase struct {
 	contractRepo commercial.ServiceContractRepository
+	tariffRepo   commercial.TariffRepository
 }
 
 // NewUpdateContractPeriodUseCase: コンストラクタ
 func NewUpdateContractPeriodUseCase(
 	contractRepo commercial.ServiceContractRepository,
+	tariffRepo commercial.TariffRepository,
 ) *UpdateContractPeriodUseCase {
 	return &UpdateContractPeriodUseCase{
 		contractRepo: contractRepo,
+		tariffRepo:   tariffRepo,
 	}
 }
 
@@ -86,6 +89,15 @@ func (uc *UpdateContractPeriodUseCase) Execute(
 		).WithDetail("contractID", contract.ID)
 	}
 
+	// Tariff件数を取得
+	tariffCount, err := uc.tariffRepo.CountByContractID(ctx, contract.ID)
+	if err != nil {
+		return nil, NewCreateBidContractError(
+			"COUNT_ERROR",
+			"failed to count tariffs",
+		).WithDetail("contractID", contract.ID)
+	}
+
 	// レスポンスを構築
 	return &UpdateContractPeriodOutput{
 		ContractID:  contract.ID,
@@ -95,6 +107,6 @@ func (uc *UpdateContractPeriodUseCase) Execute(
 		ValidFrom:   contract.ValidPeriod.From,
 		ValidTo:     contract.ValidPeriod.To,
 		UpdatedAt:   contract.UpdatedAt,
-		TariffCount: contract.TariffCount(),
+		TariffCount: tariffCount,
 	}, nil
 }

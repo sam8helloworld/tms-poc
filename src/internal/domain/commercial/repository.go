@@ -8,14 +8,11 @@ import (
 )
 
 // ServiceContractRepository: ServiceContract集約のリポジトリインターフェース
-// ServiceContractが集約ルートであり、Tariffは集約内のエンティティとして管理される
 type ServiceContractRepository interface {
 	// Save: ServiceContractを保存（新規作成または更新）
-	// Tariffも含めてすべて永続化される
 	Save(ctx context.Context, contract *ServiceContract) error
 
 	// FindByID: IDでServiceContractを取得
-	// Tariffsも含めて取得される
 	FindByID(ctx context.Context, id uuid.UUID) (*ServiceContract, error)
 
 	// FindByProviderAndShipper: プロバイダーと荷主の組み合わせで契約を検索
@@ -43,4 +40,28 @@ type LogisticsProviderRepository interface {
 
 	// Save: LogisticsProviderを保存
 	Save(ctx context.Context, provider *LogisticsProvider) error
+}
+
+// TariffRepository: Tariff集約のリポジトリインターフェース
+type TariffRepository interface {
+	// Save: Tariffを保存（新規作成または更新）
+	Save(ctx context.Context, tariff *Tariff) error
+
+	// FindByID: IDでTariffを取得
+	FindByID(ctx context.Context, id uuid.UUID) (*Tariff, error)
+
+	// FindByContractID: 契約IDに紐づくTariffを全件取得
+	FindByContractID(ctx context.Context, contractID uuid.UUID) ([]*Tariff, error)
+
+	// FindByContractIDAndName: 契約IDと名前でTariffを検索
+	FindByContractIDAndName(ctx context.Context, contractID uuid.UUID, name string) ([]*Tariff, error)
+
+	// FindLatestVersionByContractIDAndName: 契約IDと名前で最新バージョンのTariffを取得
+	FindLatestVersionByContractIDAndName(ctx context.Context, contractID uuid.UUID, name string) (*Tariff, error)
+
+	// CountByContractID: 契約IDに紐づくTariffの件数を取得
+	CountByContractID(ctx context.Context, contractID uuid.UUID) (int, error)
+
+	// Delete: Tariffを削除
+	Delete(ctx context.Context, id uuid.UUID) error
 }

@@ -27,14 +27,17 @@ type RemoveTariffOutput struct {
 // DRAFT状態の契約からのみ料金表を削除できる
 type RemoveTariffFromContractUseCase struct {
 	contractRepo commercial.ServiceContractRepository
+	tariffRepo   commercial.TariffRepository
 }
 
 // NewRemoveTariffFromContractUseCase: コンストラクタ
 func NewRemoveTariffFromContractUseCase(
 	contractRepo commercial.ServiceContractRepository,
+	tariffRepo commercial.TariffRepository,
 ) *RemoveTariffFromContractUseCase {
 	return &RemoveTariffFromContractUseCase{
 		contractRepo: contractRepo,
+		tariffRepo:   tariffRepo,
 	}
 }
 
@@ -58,29 +61,29 @@ func (uc *RemoveTariffFromContractUseCase) Execute(
 		).WithDetail("currentStatus", string(contract.Status()))
 	}
 
-	// 2. 削除する料金表の情報を取得（レスポンス用）
-	var removedTariffName string
-	for _, tariff := range contract.Tariffs() {
-		if tariff.ID == input.TariffID {
-			removedTariffName = tariff.Name
-			break
-		}
+	// 2. 削除する料金表を取得
+	tariff, err := uc.tariffRepo.FindByID(ctx, input.TariffID)
+	if err != nil || tariff == nil {
+		return nil, NewRegisterTariffError("TARIFF_NOT_FOUND", "tariff not found").
+			WithDetail("tariffID", input.TariffID).
+			WithDetail("contractID", input.ContractID)
 	}
-	if removedTariffName == "" {
-		return nil, NewRegisterTariffError("TARIFF_NOT_FOUND", "tariff not found in contract").
+	if tariff.ContractID != input.ContractID {
+		return nil, NewRegisterTariffError("TARIFF_NOT_IN_CONTRACT", "tariff does not belong to the specified contract").
 			WithDetail("tariffID", input.TariffID).
 			WithDetail("contractID", input.ContractID)
 	}
 
 	// 3. 料金表を削除
-	if err := contract.RemoveTariff(input.TariffID); err != nil {
+	if err := uc.tariffRepo.Delete(ctx, input.TariffID); err != nil {
 		return nil, NewRegisterTariffError("REMOVE_ERROR", "failed to remove tariff").
 			WithCause(err)
 	}
 
-	// 4. 契約を保存
-	if err := uc.contractRepo.Save(ctx, contract); err != nil {
-		return nil, NewRegisterTariffError("SAVE_ERROR", "failed to save contract").
+	// 4. 残りのTariff件数を取得
+	remainingCount, err := uc.tariffRepo.CountByContractID(ctx, input.ContractID)
+	if err != nil {
+		return nil, NewRegisterTariffError("COUNT_ERROR", "failed to count remaining tariffs").
 			WithCause(err)
 	}
 
@@ -89,8 +92,8 @@ func (uc *RemoveTariffFromContractUseCase) Execute(
 		ContractID:        contract.ID,
 		ContractStatus:    string(contract.Status()),
 		RemovedTariffID:   input.TariffID,
-		RemovedTariffName: removedTariffName,
-		RemainingTariffs:  contract.TariffCount(),
+		RemovedTariffName: tariff.Name,
+		RemainingTariffs:  remainingCount,
 		Message:           "Tariff removed successfully from contract",
 	}, nil
 }

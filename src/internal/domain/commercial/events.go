@@ -33,7 +33,7 @@ type TariffRegistered struct {
 // NewTariffRegistered: TariffRegisteredイベントを生成
 func NewTariffRegistered(contractID, tariffID uuid.UUID, tariffName string, isUpdate bool) TariffRegistered {
 	return TariffRegistered{
-		BaseEvent:  shared.NewBaseEvent("TariffRegistered", contractID, "ServiceContract"),
+		BaseEvent:  shared.NewBaseEvent("TariffRegistered", tariffID, "Tariff"),
 		TariffID:   tariffID,
 		TariffName: tariffName,
 		ContractID: contractID,
@@ -54,11 +54,29 @@ type TariffAmended struct {
 // NewTariffAmended: TariffAmendedイベントを生成
 func NewTariffAmended(contractID, tariffID uuid.UUID, tariffName string, newVersion int, baseTariffID uuid.UUID) TariffAmended {
 	return TariffAmended{
-		BaseEvent:    shared.NewBaseEvent("TariffAmended", contractID, "ServiceContract"),
+		BaseEvent:    shared.NewBaseEvent("TariffAmended", tariffID, "Tariff"),
 		TariffID:     tariffID,
 		TariffName:   tariffName,
 		NewVersion:   newVersion,
 		BaseTariffID: baseTariffID,
 		ContractID:   contractID,
+	}
+}
+
+// TariffRemoved: 料金表削除イベント
+type TariffRemoved struct {
+	shared.BaseEvent
+	TariffID   uuid.UUID
+	TariffName string
+	ContractID uuid.UUID
+}
+
+// NewTariffRemoved: TariffRemovedイベントを生成
+func NewTariffRemoved(contractID, tariffID uuid.UUID, tariffName string) TariffRemoved {
+	return TariffRemoved{
+		BaseEvent:  shared.NewBaseEvent("TariffRemoved", tariffID, "Tariff"),
+		TariffID:   tariffID,
+		TariffName: tariffName,
+		ContractID: contractID,
 	}
 }

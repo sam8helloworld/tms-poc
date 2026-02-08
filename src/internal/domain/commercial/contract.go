@@ -29,8 +29,9 @@ const (
 )
 
 // ServiceContract: 契約（集約ルート）
-// 入札プロセスにおいて、物流企業から提示された料金表を含む契約情報
-// DRAFT状態で作成され、料金表を登録・比較し、最終的にCONTRACTED状態になる
+// 入札プロセスにおいて、物流企業から提示された契約情報を管理する
+// DRAFT状態で作成され、最終的にCONTRACTED状態になる
+// 料金表(Tariff)は独立した集約として管理され、ContractIDで参照される
 type ServiceContract struct {
 	shared.EventRecorder
 
@@ -39,7 +40,6 @@ type ServiceContract struct {
 	ShipperID   uuid.UUID      // 荷主企業ID
 	status      ContractStatus // 契約ステータス
 	ValidPeriod shared.DateRange
-	tariffs     []*Tariff
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -48,18 +48,6 @@ type ServiceContract struct {
 // Status: ステータスのgetter
 func (c *ServiceContract) Status() ContractStatus {
 	return c.status
-}
-
-// Tariffs: 料金表のgetter（コピーを返却）
-func (c *ServiceContract) Tariffs() []*Tariff {
-	result := make([]*Tariff, len(c.tariffs))
-	copy(result, c.tariffs)
-	return result
-}
-
-// TariffCount: 料金表の数を返す
-func (c *ServiceContract) TariffCount() int {
-	return len(c.tariffs)
 }
 
 // NewServiceContract: ServiceContractのファクトリー関数
@@ -90,73 +78,17 @@ func NewServiceContract(
 			From: validFrom,
 			To:   validTo,
 		},
-		tariffs:   make([]*Tariff, 0),
 		CreatedAt: now,
 		UpdatedAt: now,
 	}, nil
 }
 
-// AddOrUpdateTariff: 料金表を追加または更新
-// 同じID（UUID）のTariffがあれば更新、なければ追加
-// バージョン管理: 同じ名前でもバージョンが異なれば別レコードとして追加される
-func (c *ServiceContract) AddOrUpdateTariff(tariff *Tariff) error {
-	if err := c.canModifyTariffs(); err != nil {
-		return err
-	}
-
-	if tariff == nil {
-		return shared.NewDomainError(shared.ErrInvalidArgument, "tariff is required")
-	}
-
-	// バリデーション
-	if err := tariff.Validate(); err != nil {
-		return err
-	}
-
-	// 既存のTariffを検索（IDで判定）
-	for i, existing := range c.tariffs {
-		if existing.ID == tariff.ID {
-			// 更新（同じIDの場合のみ）
-			c.tariffs[i] = tariff
-			c.UpdatedAt = time.Now()
-			c.RecordEvent(NewTariffRegistered(c.ID, tariff.ID, tariff.Name, true))
-			return nil
-		}
-	}
-
-	// 追加（新規または新バージョン）
-	c.tariffs = append(c.tariffs, tariff)
-	c.UpdatedAt = time.Now()
-	isUpdate := tariff.IsNewVersion() // 新バージョンの場合はtrueになる
-	c.RecordEvent(NewTariffRegistered(c.ID, tariff.ID, tariff.Name, isUpdate))
-	return nil
-}
-
-// RemoveTariff: 料金表を削除
-func (c *ServiceContract) RemoveTariff(tariffID uuid.UUID) error {
-	if err := c.canModifyTariffs(); err != nil {
-		return err
-	}
-
-	for i, tariff := range c.tariffs {
-		if tariff.ID == tariffID {
-			c.tariffs = append(c.tariffs[:i], c.tariffs[i+1:]...)
-			c.UpdatedAt = time.Now()
-			return nil
-		}
-	}
-
-	return shared.NewDomainError(shared.ErrNotFound, "tariff not found")
-}
-
 // MarkAsContracted: 契約を成立させる
 // 入札プロセスを経て、この契約を正式なものとする
+// Tariffの存在チェックはUseCase層で実施する
 func (c *ServiceContract) MarkAsContracted() error {
 	if c.status != ContractStatusDraft {
 		return shared.NewDomainError(shared.ErrInvalidState, "only DRAFT contracts can be marked as CONTRACTED")
-	}
-	if len(c.tariffs) == 0 {
-		return shared.NewDomainError(shared.ErrBusinessRuleViolation, "contract must have at least one tariff to be contracted")
 	}
 
 	oldStatus := c.status
@@ -207,11 +139,6 @@ func (c *ServiceContract) Validate() error {
 		return shared.NewDomainError(shared.ErrInvalidArgument, "valid period is invalid")
 	}
 
-	// CONTRACTED状態では少なくとも1つのTariffが必要
-	if c.status == ContractStatusContracted && len(c.tariffs) == 0 {
-		return shared.NewDomainError(shared.ErrBusinessRuleViolation, "contracted contract must have at least one tariff")
-	}
-
 	return nil
 }
 
@@ -225,60 +152,3 @@ func (c *ServiceContract) IsDraft() bool {
 	return c.status == ContractStatusDraft
 }
 
-// canModifyTariffs: Tariffの追加・更新・削除が可能な状態か確認
-func (c *ServiceContract) canModifyTariffs() error {
-	if c.status != ContractStatusDraft {
-		return shared.NewDomainError(shared.ErrInvalidState, "tariffs can only be modified in DRAFT status")
-	}
-	return nil
-}
-
-// AddTariffAmendment: CONTRACTED状態の契約に対して料金表の改定版を追加
-// 既存のTariffの新バージョン（IsNewVersion() == true）のみ受け付ける
-// 既存Tariffの上書き・削除は不可
-func (c *ServiceContract) AddTariffAmendment(tariff *Tariff) error {
-	if c.status != ContractStatusContracted {
-		return shared.NewDomainError(shared.ErrInvalidState, "tariff amendments can only be added to CONTRACTED contracts")
-	}
-
-	if tariff == nil {
-		return shared.NewDomainError(shared.ErrInvalidArgument, "tariff is required")
-	}
-
-	if !tariff.IsNewVersion() {
-		return shared.NewDomainError(shared.ErrBusinessRuleViolation, "only new versions of existing tariffs can be added as amendments")
-	}
-
-	if err := tariff.Validate(); err != nil {
-		return err
-	}
-
-	c.tariffs = append(c.tariffs, tariff)
-	c.UpdatedAt = time.Now()
-	c.RecordEvent(NewTariffAmended(c.ID, tariff.ID, tariff.Name, tariff.Version, *tariff.BaseVersionID))
-	return nil
-}
-
-// FindTariffsByName: 指定された名前のすべてのTariffバージョンを取得
-func (c *ServiceContract) FindTariffsByName(name string) []*Tariff {
-	var result []*Tariff
-	for _, tariff := range c.tariffs {
-		if tariff.Name == name {
-			result = append(result, tariff)
-		}
-	}
-	return result
-}
-
-// FindLatestTariffVersion: 指定された名前の最新バージョンのTariffを取得
-func (c *ServiceContract) FindLatestTariffVersion(name string) *Tariff {
-	var latest *Tariff
-	for _, tariff := range c.tariffs {
-		if tariff.Name == name {
-			if latest == nil || tariff.Version > latest.Version {
-				latest = tariff
-			}
-		}
-	}
-	return latest
-}

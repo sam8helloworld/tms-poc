@@ -29,16 +29,19 @@ import (
 // 9. 出力DTOを返却
 type AmendContractTariffUseCase struct {
 	contractRepo  commercial.ServiceContractRepository
+	tariffRepo    commercial.TariffRepository
 	parserFactory parser.TariffParserFactory
 }
 
 // NewAmendContractTariffUseCase: コンストラクタ
 func NewAmendContractTariffUseCase(
 	contractRepo commercial.ServiceContractRepository,
+	tariffRepo commercial.TariffRepository,
 	parserFactory parser.TariffParserFactory,
 ) *AmendContractTariffUseCase {
 	return &AmendContractTariffUseCase{
 		contractRepo:  contractRepo,
+		tariffRepo:    tariffRepo,
 		parserFactory: parserFactory,
 	}
 }
@@ -69,15 +72,14 @@ func (uc *AmendContractTariffUseCase) Execute(
 	}
 
 	// 3. ベースとなるTariffを取得
-	var baseTariff *commercial.Tariff
-	for _, tariff := range contract.Tariffs() {
-		if tariff.ID == input.BaseTariffID {
-			baseTariff = tariff
-			break
-		}
+	baseTariff, err := uc.tariffRepo.FindByID(ctx, input.BaseTariffID)
+	if err != nil || baseTariff == nil {
+		return nil, NewAmendTariffError("BASE_TARIFF_NOT_FOUND", "base tariff not found").
+			WithDetail("baseTariffID", input.BaseTariffID).
+			WithDetail("contractID", input.ContractID)
 	}
-	if baseTariff == nil {
-		return nil, NewAmendTariffError("BASE_TARIFF_NOT_FOUND", "base tariff not found in contract").
+	if baseTariff.ContractID != input.ContractID {
+		return nil, NewAmendTariffError("BASE_TARIFF_NOT_IN_CONTRACT", "base tariff does not belong to the specified contract").
 			WithDetail("baseTariffID", input.BaseTariffID).
 			WithDetail("contractID", input.ContractID)
 	}
@@ -139,19 +141,25 @@ func (uc *AmendContractTariffUseCase) Execute(
 		}
 	}
 
-	// 8. 契約に改定版を追加
-	if err := contract.AddTariffAmendment(newTariff); err != nil {
-		return nil, NewAmendTariffError("AMENDMENT_ERROR", "failed to add tariff amendment to contract").
+	// 8. IsNewVersionチェック（UseCase層で実施）
+	if !newTariff.IsNewVersion() {
+		return nil, NewAmendTariffError("NOT_NEW_VERSION", "only new versions of existing tariffs can be added as amendments")
+	}
+
+	// 9. Tariffを保存
+	if err := uc.tariffRepo.Save(ctx, newTariff); err != nil {
+		return nil, NewAmendTariffError("SAVE_ERROR", "failed to save tariff").
 			WithCause(err)
 	}
 
-	// 9. 契約を保存
-	if err := uc.contractRepo.Save(ctx, contract); err != nil {
-		return nil, NewAmendTariffError("SAVE_ERROR", "failed to save contract").
+	// 10. Tariff件数を取得
+	totalTariffCount, err := uc.tariffRepo.CountByContractID(ctx, contract.ID)
+	if err != nil {
+		return nil, NewAmendTariffError("COUNT_ERROR", "failed to count tariffs").
 			WithCause(err)
 	}
 
-	// 10. レスポンスを構築
+	// 11. レスポンスを構築
 	return &AmendContractTariffOutput{
 		ContractID:       contract.ID,
 		ContractStatus:   string(contract.Status()),
@@ -162,7 +170,7 @@ func (uc *AmendContractTariffUseCase) Execute(
 		EffectiveFrom:    newTariff.EffectiveDate.From,
 		EffectiveTo:      newTariff.EffectiveDate.To,
 		LineItemCount:    len(newTariff.LineItems),
-		TotalTariffCount: contract.TariffCount(),
+		TotalTariffCount: totalTariffCount,
 		Message:          "Tariff amendment added successfully to contracted contract.",
 	}, nil
 }
