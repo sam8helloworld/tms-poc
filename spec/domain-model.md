@@ -1,6 +1,6 @@
 # ドメインモデル図
 
-## DDD Layered Architecture
+## DDD 概念モデル
 
 このドメインモデルは、国際物流SCMプラットフォームのコア設計を表現しています。
 商流（Shipment）と実行（TrackingUnit）を分離し、各時点での費用算出とGap分析を可能にします。
@@ -8,29 +8,19 @@
 ```mermaid
 classDiagram
     %% ============================================
-    %% Shared (共通値オブジェクト層)
+    %% Shared Layer (共通値オブジェクト層)
     %% ============================================
-    class Money {
-        +decimal.Decimal Amount
-        +string Currency
-        +NewMoney(amount, currency) Money, error
-        +ZeroMoney(currency) Money
-        +Add(Money) Money, error
-        +Sub(Money) Money, error
-        +Multiply(decimal.Decimal) Money
-        +IsZero() bool
-        +IsPositive() bool
-        +IsNegative() bool
-        +GreaterThan(Money) bool
-        +Equals(Money) bool
+    class Money["金額<br/>(Money)"] {
+        Amount: Decimal
+        Currency: String
     }
 
-    class DateRange {
-        +time.Time From
-        +time.Time To
+    class DateRange["期間<br/>(DateRange)"] {
+        From: Time
+        To: Time
     }
 
-    class TransportMode {
+    class TransportMode["輸送モード<br/>(TransportMode)"] {
         <<enumeration>>
         OCEAN
         AIR
@@ -38,7 +28,7 @@ classDiagram
         Railway
     }
 
-    class LocationType {
+    class LocationType["拠点種別<br/>(LocationType)"] {
         <<enumeration>>
         PORT
         AIRPORT
@@ -47,1060 +37,417 @@ classDiagram
         CONTAINER_YARD
         DOOR
         BORDER
-        +ValidForMode(TransportMode) bool
     }
 
-    class DomainErrorCode {
+    class TrackingStatus["追跡ステータス<br/>(TrackingStatus)"] {
         <<enumeration>>
-        INVALID_ARGUMENT
-        NOT_FOUND
-        INVALID_STATE
-        BUSINESS_RULE_VIOLATION
-        CURRENCY_MISMATCH
-    }
-
-    class DomainError {
-        +DomainErrorCode Code
-        +string Message
-        +map Details
-        +error Cause
-        +Error() string
-        +Unwrap() error
-        +NewDomainError(code, message) DomainError
-        +WithDetail(key, value) DomainError
-        +WithCause(error) DomainError
-    }
-
-    class DomainEvent {
-        <<interface>>
-        +EventID() uuid.UUID
-        +EventType() string
-        +OccurredAt() time.Time
-        +AggregateID() uuid.UUID
-        +AggregateType() string
-    }
-
-    class BaseEvent {
-        +uuid.UUID ID
-        +string Type
-        +time.Time Occurred
-        +uuid.UUID AggID
-        +string AggType
-        +NewBaseEvent(eventType, aggregateID, aggregateType) BaseEvent
-    }
-
-    class EventRecorder {
-        -DomainEvent[] events
-        +RecordEvent(DomainEvent)
-        +PullEvents() DomainEvent[]
-        +HasEvents() bool
-    }
-
-    %% ============================================
-    %% Route (ルーティング集約)
-    %% ============================================
-    class Location {
-        +uuid.UUID ID
-        +string Name
-        +string* UnLocode
-        +string CountryCode
-        +string Type
-    }
-
-    class Lane {
-        +uuid.UUID ID
-        +uuid.UUID OriginID
-        +uuid.UUID DestinationID
-        +TransportMode Mode
-        +decimal.Decimal DistanceKm
-    }
-
-    class PhysicalRoute {
-        +uuid.UUID ID
-        +uuid.UUID OriginID
-        +uuid.UUID DestinationID
-        +RouteSegment[] Segments
-    }
-
-    class RouteSegment {
-        +int SequenceOrder
-        +uuid.UUID OriginLocationID
-        +LocationType OriginType
-        +uuid.UUID DestLocationID
-        +LocationType DestType
-        +TransportMode Mode
-        +decimal.Decimal DistanceKm
-        +uuid.UUID* MasterLaneID
-    }
-
-    %% ============================================
-    %% Commercial (商取引集約)
-    %% ============================================
-    class ProviderType {
-        <<enumeration>>
-        CARRIER
-        AIRLINE
-        TRUCKING_COMPANY
-        FORWARDER
-        NVOCC
-        WAREHOUSE
-        CUSTOMS_BROKER
-        +IsAssetBased() bool
-    }
-
-    class LogisticsProvider {
-        +uuid.UUID ID
-        +string Name
-        +ProviderType Type
-    }
-
-    class ContractStatus {
-        <<enumeration>>
-        DRAFT
-        CONTRACTED
-        EXPIRED
-        CANCELLED
-    }
-
-    class ServiceContract {
-        <<Aggregate Root>>
-        +EventRecorder
-        +uuid.UUID ID
-        +uuid.UUID ProviderID
-        +uuid.UUID ShipperID
-        -ContractStatus status
-        +DateRange ValidPeriod
-        -Tariff[] tariffs
-        +time.Time CreatedAt
-        +time.Time UpdatedAt
-        +NewServiceContract(providerID, shipperID, from, to) ServiceContract, error
-        +Status() ContractStatus
-        +Tariffs() Tariff[]
-        +TariffCount() int
-        +AddOrUpdateTariff(Tariff) error
-        +RemoveTariff(uuid.UUID) error
-        +FindTariffsByName(string) Tariff[]
-        +FindLatestTariffVersion(string) Tariff
-        +MarkAsContracted() error
-        +MarkAsExpired() error
-        +MarkAsCancelled() error
-        +Validate() error
-        +IsActive() bool
-        +IsDraft() bool
-        +AddTariffAmendment(Tariff) error
-    }
-
-    class Tariff {
-        +uuid.UUID ID
-        +string Name
-        +int Version
-        +uuid.UUID* BaseVersionID
-        +DateRange EffectiveDate
-        +TariffLineItem[] LineItems
-        +NewTariff(name, from, to) Tariff, error
-        +NewTariffVersion(baseTariff, from, to) Tariff, error
-        +AddLineItem(TariffLineItem) error
-        +Validate() error
-        +IsEffectiveAt(time.Time) bool
-        +IsNewVersion() bool
-        +GetVersionInfo() string
-    }
-
-    class TariffLineItem {
-        +uuid.UUID ID
-        +string ChargeCode
-        +string Category
-        +ServiceScope Scope
-        +PricingStrategy Logic
-    }
-
-    class ContractStatusChanged {
-        <<Domain Event>>
-        +BaseEvent
-        +ContractStatus OldStatus
-        +ContractStatus NewStatus
-    }
-
-    class TariffRegistered {
-        <<Domain Event>>
-        +BaseEvent
-        +uuid.UUID TariffID
-        +string TariffName
-        +uuid.UUID ContractID
-        +bool IsUpdate
-    }
-
-    class TariffAmended {
-        <<Domain Event>>
-        +BaseEvent
-        +uuid.UUID TariffID
-        +string TariffName
-        +int NewVersion
-        +uuid.UUID BaseTariffID
-        +uuid.UUID ContractID
-    }
-
-    %% ============================================
-    %% Rate (社内レート集約)
-    %% ============================================
-    class RateStatus {
-        <<enumeration>>
-        DRAFT
-        ACTIVE
-        EXPIRED
-    }
-
-    class Rate {
-        <<Aggregate Root>>
-        +EventRecorder
-        +uuid.UUID ID
-        +uuid.UUID ShipperID
-        +string Name
-        +DateRange ValidPeriod
-        -RateStatus status
-        -RateEntry[] entries
-        +time.Time CreatedAt
-        +time.Time UpdatedAt
-        +NewRate(shipperID, name, from, to) Rate, error
-        +Status() RateStatus
-        +Entries() RateEntry[]
-        +AddEntry(RateEntry) error
-        +RemoveEntry(uuid.UUID) error
-        +Activate() error
-        +MarkAsExpired() error
-        +ReplaceEntryTariff(uuid.UUID, uuid.UUID) error
-        +FindEntriesForRoute(originID, destID, mode) RateEntry[]
-    }
-
-    class RateEntry {
-        +uuid.UUID ID
-        +uuid.UUID ProviderID
-        +uuid.UUID ContractID
-        +uuid.UUID TariffID
-        +RouteScope RouteScope
-    }
-
-    class RouteScope {
-        <<Value Object>>
-        +LocationID* OriginID
-        +LocationID* DestinationID
-        +TransportMode* TransportMode
-        +Matches(originID, destID, mode) bool
-    }
-
-    class RateActivated {
-        <<Domain Event>>
-        +BaseEvent
-    }
-
-    class RateEntryAdded {
-        <<Domain Event>>
-        +BaseEvent
-        +uuid.UUID EntryID
-    }
-
-    class RateEntryTariffReplaced {
-        <<Domain Event>>
-        +BaseEvent
-        +uuid.UUID EntryID
-        +uuid.UUID OldTariffID
-        +uuid.UUID NewTariffID
-    }
-
-    %% ============================================
-    %% Shipment (出荷案件集約)
-    %% ============================================
-    class Shipment {
-        <<Aggregate Root>>
-        +EventRecorder
-        +uuid.UUID ID
-        +string ShipmentNo
-        +uuid.UUID ShipperID
-        +uuid.UUID ConsigneeID
-        +ShipmentPlan Plan
-        -uuid.UUID[] trackingUnitIDs
-        -ShipmentCost cost
-        -ShipmentStatus status
-        +NewShipment(shipmentNo, shipperID, consigneeID, plan) Shipment, error
-        +Status() ShipmentStatus
-        +Cost() ShipmentCost
-        +TrackingUnitIDs() uuid.UUID[]
-        +AddTrackingUnitID(uuid.UUID)
-        +UpdateShipmentStatus(ShipmentStatus)
-        +SetEstimatedCost(EstimatedCost)
-        +SetEstimatedActualCost(EstimatedActualCost)
-        +SetActualCost(ActualCost)
-    }
-
-    class ShipmentPlan {
-        <<Entity>>
-        +PhysicalRoute PlannedRoute
-        +ShipmentItem[] Items
-        +uuid.UUID RateID
-        +map TransportRequirements
-        +GetTotalWeight() decimal.Decimal
-        +GetTotalVolume() decimal.Decimal
-        +GetTotalQuantity() decimal.Decimal
-    }
-
-    class ShipmentItem {
-        <<Entity>>
-        +uuid.UUID ID
-        +string Commodity
-        +string HSCode
-        +decimal.Decimal Quantity
-        +decimal.Decimal WeightKG
-        +decimal.Decimal VolumeM3
-        +uuid.UUID* LoadedOnTrackingID
-    }
-
-    class ShipmentCost {
-        <<Entity>>
-        +EstimatedCost* EstimatedCost
-        +EstimatedActualCost* EstimatedActualCost
-        +ActualCost* ActualCost
-        +bool IsFinalized
-    }
-
-    class ShipmentStatus {
-        <<enumeration>>
-        PLANNED
         BOOKED
         IN_TRANSIT
         EXCEPTION
-        COMPLETED
-        CANCELLED
-    }
-
-    class ShipmentCreated {
-        <<Domain Event>>
-        +BaseEvent
-    }
-
-    class ShipmentStatusChanged {
-        <<Domain Event>>
-        +BaseEvent
-        +ShipmentStatus OldStatus
-        +ShipmentStatus NewStatus
+        ARRIVED
     }
 
     %% ============================================
-    %% Route Deviation (ルート逸脱分析)
+    %% Route Aggregate (ルーティング集約)
     %% ============================================
-    class RouteDeviationAnalysis {
-        <<Value Object>>
-        +uuid.UUID ShipmentID
-        +bool HasDeviation
-        +string DeviationReason
-        +SegmentMapping[] SegmentMappings
-        +RouteSegmentID[] MissingSegments
-        +uuid.UUID[] ExtraSegments
-    }
+    namespace ルーティング集約 {
+        class Location["拠点<br/>(Location)"] {
+            ID: UUID
+            Name: String
+            UnLocode: String
+            CountryCode: String
+            Type: String
+        }
 
-    class SegmentMapping {
-        <<Value Object>>
-        +RouteSegmentID PlannedSegmentID
-        +uuid.UUID* ActualSegmentID
-        +bool IsMatched
-        +DeviationType DeviationType
-    }
+        class Lane["輸送路<br/>(Lane)"] {
+            ID: UUID
+            OriginID: UUID
+            DestinationID: UUID
+            Mode: TransportMode
+            DistanceKm: Decimal
+        }
 
-    class DeviationType {
-        <<enumeration>>
-        MATCHED
-        LOCATION_CHANGED
-        SKIPPED
-        ADDED
-    }
+        class PhysicalRoute["物理ルート<br/>(PhysicalRoute)"] {
+            ID: UUID
+            OriginID: UUID
+            DestinationID: UUID
+        }
 
-    %% ============================================
-    %% Tracking (追跡集約)
-    %% ============================================
-    class TrackingUnit {
-        <<Aggregate Root>>
-        +EventRecorder
-        +uuid.UUID ID
-        +TrackingNumber TrackingNumber
-        +uuid.UUID CarrierID
-        -TrackingSegment[] segments
-        -TrackingStatus currentStatus
-        +NewTrackingUnit(trackingNumber, carrierID, segments) TrackingUnit, error
-        +CurrentStatus() TrackingStatus
-        +Segments() TrackingSegment[]
-        +UpdateSegmentStatus(uuid.UUID, TrackingEvent) error
-    }
-
-    class TrackingSegment {
-        <<Entity>>
-        +uuid.UUID ID
-        +uuid.UUID ActualOriginLocationID
-        +uuid.UUID ActualDestLocationID
-        +TransportMode Mode
-        +string CarrierTrackingNumber
-        +TrackingSourceType PrimarySource
-        +TrackingStatus Status
-        +TrackingEvent[] Events
-        +time.Time* ActualDeparture
-        +time.Time* ActualArrival
-        +time.Time* EstimatedArrival
-    }
-
-    class TrackingEvent {
-        <<Value Object>>
-        +uuid.UUID ID
-        +time.Time Timestamp
-        +TrackingSourceType Source
-        +string Code
-        +string Description
-        +string LocationRaw
-        +string RawPayload
-    }
-
-    class TrackingSourceType {
-        <<enumeration>>
-        SEARATES_API
-        MANUAL_INPUT
-        PARTNER_EDI
-        DRIVER_APP
-        IOT_DEVICE
-    }
-
-    class TrackingEventReceived {
-        <<Domain Event>>
-        +BaseEvent
-        +uuid.UUID SegmentID
-        +string EventCode
+        class RouteSegment["ルート区間<br/>(RouteSegment)"] {
+            ID: UUID
+            SequenceOrder: Int
+            OriginLocationID: UUID
+            OriginType: LocationType
+            DestLocationID: UUID
+            DestType: LocationType
+            Mode: TransportMode
+            DistanceKm: Decimal
+            MasterLaneID: UUID
+        }
     }
 
     %% ============================================
-    %% CalcParam (計算パラメータ層)
+    %% Commercial Aggregate (商取引集約)
     %% ============================================
-    class ShipmentContext {
-        +PhysicalRoute Route
-        +decimal.Decimal Quantity
-        +decimal.Decimal WeightKG
-        +decimal.Decimal VolumeM3
-        +map Attributes
+    namespace 商取引集約 {
+        class LogisticsProvider["物流企業<br/>(LogisticsProvider)"] {
+            <<Aggregate Root>>
+            ID: UUID
+            Name: String
+            Type: ProviderType
+        }
+
+        class ProviderType["業者種別<br/>(ProviderType)"] {
+            <<enumeration>>
+            CARRIER
+            AIRLINE
+            TRUCKING_COMPANY
+            FORWARDER
+            NVOCC
+            WAREHOUSE
+            CUSTOMS_BROKER
+        }
+
+        class ServiceContract["サービス契約<br/>(ServiceContract)"] {
+            <<Aggregate Root>>
+            ID: UUID
+            ProviderID: UUID
+            ShipperID: UUID
+            status: ContractStatus
+            ValidPeriod: DateRange
+            tariffs: Tariff[]
+            CreatedAt: Time
+            UpdatedAt: Time
+        }
+
+        class ContractStatus["契約ステータス<br/>(ContractStatus)"] {
+            <<enumeration>>
+            DRAFT
+            CONTRACTED
+            EXPIRED
+            CANCELLED
+        }
+
+        class Tariff["料金表<br/>(Tariff)"] {
+            ID: UUID
+            Name: String
+            Version: Int
+            BaseVersionID: UUID
+            EffectiveDate: DateRange
+        }
+
+        class TariffLineItem["料金項目<br/>(TariffLineItem)"] {
+            ID: UUID
+            ChargeCode: String
+            Category: String
+            Scope: ServiceScope
+            Logic: PricingStrategy
+        }
     }
 
     %% ============================================
-    %% Logic (ビジネスロジック層)
+    %% Rate Aggregate (社内レート集約)
     %% ============================================
-    class ServiceScope {
-        <<interface>>
-        +IsApplicable(ShipmentContext) bool
+    namespace 社内レート集約 {
+        class Rate["社内レート<br/>(Rate)"] {
+            <<Aggregate Root>>
+            ID: UUID
+            ShipperID: UUID
+            Name: String
+            ValidPeriod: DateRange
+            status: RateStatus
+            entries: RateEntry[]
+            CreatedAt: Time
+            UpdatedAt: Time
+        }
+
+        class RateStatus["レートステータス<br/>(RateStatus)"] {
+            <<enumeration>>
+            DRAFT
+            ACTIVE
+            EXPIRED
+        }
+
+        class RateEntry["レートエントリ<br/>(RateEntry)"] {
+            ID: UUID
+            ProviderID: UUID
+            ContractID: UUID
+            TariffID: UUID
+        }
+
+        class RouteScope["ルート適用範囲<br/>(RouteScope)"] {
+            <<Value Object>>
+            OriginID: UUID
+            DestinationID: UUID
+            TransportMode: TransportMode
+        }
     }
 
-    class LocationService {
-        +uuid.UUID LocationID
-        +string ServiceType
-        +IsApplicable(ShipmentContext) bool
+    %% ============================================
+    %% Shipment Aggregate (出荷案件集約)
+    %% ============================================
+    namespace 出荷案件集約 {
+        class Shipment["出荷案件<br/>(Shipment)"] {
+            <<Aggregate Root>>
+            ID: UUID
+            ShipmentNo: String
+            ShipperID: UUID
+            ConsigneeID: UUID
+            trackingUnitIDs: UUID[]
+            status: ShipmentStatus
+            CreatedAt: Time
+            UpdatedAt: Time
+        }
+
+        class ShipmentStatus["出荷ステータス<br/>(ShipmentStatus)"] {
+            <<enumeration>>
+            PLANNED
+            BOOKED
+            IN_TRANSIT
+            EXCEPTION
+            COMPLETED
+            CANCELLED
+        }
+
+        class ShipmentPlan["出荷計画<br/>(ShipmentPlan)"] {
+            PlannedRoute: PhysicalRoute
+            RateID: UUID
+            TransportRequirements: Map
+        }
+
+        class ShipmentItem["貨物明細<br/>(ShipmentItem)"] {
+            ID: UUID
+            Commodity: String
+            HSCode: String
+            Quantity: Decimal
+            WeightKG: Decimal
+            VolumeM3: Decimal
+            PackageType: String
+            LoadedOnTrackingID: UUID
+            Attributes: Map
+        }
+
+        class ShipmentCost["出荷費用<br/>(ShipmentCost)"] {
+            EstimatedCost: EstimatedCost
+            EstimatedActualCost: EstimatedActualCost
+            ActualCost: ActualCost
+            IsFinalized: Bool
+        }
     }
 
-    class TransportationService {
-        +uuid.UUID OriginID
-        +uuid.UUID DestinationID
-        +TransportMode Mode
-        +IsApplicable(ShipmentContext) bool
-    }
+    %% ============================================
+    %% Tracking Aggregate (追跡集約)
+    %% ============================================
+    namespace 追跡集約 {
+        class TrackingUnit["追跡単位<br/>(TrackingUnit)"] {
+            <<Aggregate Root>>
+            ID: UUID
+            TrackingNumber: TrackingNumber
+            CarrierID: UUID
+            segments: TrackingSegment[]
+            currentStatus: TrackingStatus
+            LastUpdated: Time
+        }
 
-    class PricingStrategy {
-        <<interface>>
-        +Calculate(ShipmentContext) Money, error
-        +Type() string
-    }
+        class TrackingNumber["追跡番号<br/>(TrackingNumber)"] {
+            <<Value Object>>
+            Number: String
+            Type: TrackingNumberType
+        }
 
-    class FlatStrategy {
-        +Money Amount
-        +Type() string
-        +Calculate(ShipmentContext) Money, error
-    }
+        class TrackingNumberType["追跡番号種別<br/>(TrackingNumberType)"] {
+            <<enumeration>>
+            CONTAINER
+            AIRWAY_BILL
+            BILL_OF_LADING
+            BOOKING_NUMBER
+        }
 
-    class CelExpressionStrategy {
-        +string Formula
-        +string Currency
-        +Type() string
-        +Calculate(ShipmentContext) Money, error
-    }
+        class TrackingSegment["追跡区間<br/>(TrackingSegment)"] {
+            ID: UUID
+            ActualOriginLocationID: UUID
+            ActualDestLocationID: UUID
+            Mode: TransportMode
+            CarrierTrackingNumber: String
+            PrimarySource: TrackingSourceType
+            Status: TrackingStatus
+            ActualDeparture: Time
+            ActualArrival: Time
+            EstimatedArrival: Time
+        }
 
-    class CompositeStrategy {
-        +PricingStrategy[] Steps
-        +Type() string
-        +Calculate(ShipmentContext) Money, error
+        class TrackingEvent["追跡イベント<br/>(TrackingEvent)"] {
+            <<Value Object>>
+            ID: UUID
+            Timestamp: Time
+            Source: TrackingSourceType
+            Code: String
+            Description: String
+            LocationRaw: String
+            RawPayload: String
+        }
+
+        class TrackingSourceType["追跡情報源<br/>(TrackingSourceType)"] {
+            <<enumeration>>
+            SEARATES_API
+            MANUAL_INPUT
+            PARTNER_EDI
+            DRIVER_APP
+            IOT_DEVICE
+        }
     }
 
     %% ============================================
     %% Cost (費用関連)
     %% ============================================
-    class EstimatedCost {
-        +uuid.UUID RateID
-        +CostLineItem[] LineItems
-        +Money TotalAmount
-        +time.Time CalculatedAt
-        +string CalculationBase
+    class EstimatedCost["見積費用<br/>(EstimatedCost)"] {
+        <<Value Object>>
+        RateID: UUID
+        TotalAmount: Money
+        CalculatedAt: Time
+        CalculationBase: String
     }
 
-    class EstimatedActualCost {
-        +uuid.UUID ShipmentID
-        +uuid.UUID RateID
-        +SegmentCost[] SegmentCosts
-        +Money TotalAmount
-        +time.Time CalculatedAt
-        +string CalculationBase
+    class EstimatedActualCost["想定実費用<br/>(EstimatedActualCost)"] {
+        <<Value Object>>
+        ShipmentID: UUID
+        RateID: UUID
+        TotalAmount: Money
+        CalculatedAt: Time
+        CalculationBase: String
     }
 
-    class ActualCost {
-        +uuid.UUID InvoiceID
-        +string InvoiceNo
-        +uuid.UUID ProviderID
-        +CostLineItem[] LineItems
-        +Money TotalAmount
-        +time.Time InvoiceDate
+    class ActualCost["実請求額<br/>(ActualCost)"] {
+        <<Value Object>>
+        InvoiceID: UUID
+        InvoiceNo: String
+        ProviderID: UUID
+        TotalAmount: Money
+        InvoiceDate: Time
     }
 
-    class SegmentCost {
-        +uuid.UUID SegmentID
-        +int SegmentIndex
-        +uuid.UUID OriginLocationID
-        +uuid.UUID DestLocationID
-        +TransportMode Mode
-        +CostLineItem[] LineItems
-        +Money TotalAmount
-        +SegmentCostStatus CalculationStatus
+    class SegmentCost["区間費用<br/>(SegmentCost)"] {
+        <<Value Object>>
+        SegmentID: UUID
+        SegmentIndex: Int
+        OriginLocationID: UUID
+        DestLocationID: UUID
+        Mode: TransportMode
+        TotalAmount: Money
+        CalculationStatus: SegmentCostStatus
     }
 
-    class CostLineItem {
-        +uuid.UUID ID
-        +string ChargeCode
-        +string ChargeName
-        +string Category
-        +Money Amount
+    class CostLineItem["費用明細行<br/>(CostLineItem)"] {
+        <<Value Object>>
+        ID: UUID
+        ChargeCode: String
+        ChargeName: String
+        Category: String
+        Amount: Money
     }
 
-    class CostGapAnalysis {
-        +uuid.UUID ShipmentID
-        +Money EstimatedTotal
-        +Money ActualTotal
-        +Money TotalGap
-        +float64 TotalGapPercentage
-        +CostItemGap[] ItemGaps
-    }
-
-    class CostItemGap {
-        +string ChargeCode
-        +Money EstimatedAmount
-        +Money ActualAmount
-        +Money Gap
-        +float64 GapPercentage
+    class SegmentCostStatus["区間費用計算ステータス<br/>(SegmentCostStatus)"] {
+        <<enumeration>>
+        COMPLETED
+        IN_PROGRESS
+        PLANNED
+        NOT_APPLICABLE
     }
 
     %% ============================================
-    %% Service (ドメインサービス層)
+    %% Logic Layer (ビジネスロジック層)
     %% ============================================
-    class FreightEstimator {
-        +Estimate(ShipmentContext, Tariff) EstimatedCost, error
-    }
-
-    class CostCalculationService {
-        +CalculateEstimatedCost(ShipmentPlan, Tariff) EstimatedCost, error
-        +CalculateEstimatedActualCost(Shipment, TrackingUnit[], Tariff) EstimatedActualCost, error
-        +AnalyzeCostGap(EstimatedActualCost, ActualCost) CostGapAnalysis, error
-    }
-
-    class ShipmentStatusUpdater {
-        +UpdateStatus(Shipment, TrackingUnit[])
-    }
-
-    class RouteDeviationService {
-        +AnalyzeDeviation(Shipment, TrackingUnit[]) RouteDeviationAnalysis
-    }
-
-    %% ============================================
-    %% UseCase (アプリケーション層)
-    %% ============================================
-    class CreateBidContractUseCase {
-        +Execute(CreateBidContractInput) CreateBidContractOutput, error
-    }
-
-    class CreateBidContractInput {
-        +uuid.UUID BidRequestID
-        +uuid.UUID ProviderID
-        +uuid.UUID ShipperID
-        +time.Time ValidFrom
-        +time.Time ValidTo
-        +string BidRequestName
-        +uuid.UUID RequestedBy
-        +time.Time RequestedAt
-        +time.Time DueDate
-        +BidRouteInfo[] TargetRoutes
-    }
-
-    class CreateBidContractOutput {
-        +uuid.UUID ContractID
-        +uuid.UUID ProviderID
-        +uuid.UUID ShipperID
-        +string Status
-        +time.Time ValidFrom
-        +time.Time ValidTo
-        +time.Time CreatedAt
-        +uuid.UUID BidRequestID
-        +string BidRequestName
-        +BidRouteInfo[] TargetRouteInfo
-        +string[] NextSteps
-    }
-
-    class RegisterTariffUseCase {
-        +Execute(RegisterTariffInput) RegisterTariffOutput, error
-    }
-
-    class RegisterTariffInput {
-        +io.Reader FileReader
-        +string FileFormat
-        +string FileName
-        +uuid.UUID* ContractID
-        +uuid.UUID ProviderID
-        +uuid.UUID ShipperID
-        +time.Time* ContractValidFrom
-        +time.Time* ContractValidTo
-        +uuid.UUID UploadedBy
-    }
-
-    class RegisterTariffOutput {
-        +uuid.UUID ContractID
-        +string ContractStatus
-        +uuid.UUID TariffID
-        +string TariffName
-        +time.Time EffectiveFrom
-        +time.Time EffectiveTo
-        +int LineItemCount
-        +bool IsNewContract
-        +bool IsUpdatedTariff
-        +int TotalTariffCount
-    }
-
-    class ApplyContractToRateUseCase {
-        +Execute(ApplyContractToRateInput) ApplyContractToRateOutput, error
-    }
-
-    class ApplyContractToRateInput {
-        +uuid.UUID RateID
-        +uuid.UUID ContractID
-        +uuid.UUID[] TariffIDs
-        +RouteScopeInput RouteScope
-    }
-
-    class ApplyContractToRateOutput {
-        +uuid.UUID RateID
-        +string RateStatus
-        +uuid.UUID ContractID
-        +uuid.UUID ProviderID
-        +AddedEntryDetail[] AddedEntries
-        +int TotalEntryCount
-    }
-
-    class UpdateContractPeriodUseCase {
-        +Execute(UpdateContractPeriodInput) UpdateContractPeriodOutput, error
-    }
-
-    class UpdateContractPeriodInput {
-        +uuid.UUID ContractID
-        +time.Time ValidFrom
-        +time.Time ValidTo
-    }
-
-    class UpdateContractPeriodOutput {
-        +uuid.UUID ContractID
-        +uuid.UUID ProviderID
-        +uuid.UUID ShipperID
-        +string Status
-        +time.Time ValidFrom
-        +time.Time ValidTo
-        +time.Time UpdatedAt
-        +int TariffCount
-    }
-
-    class DeleteBidContractUseCase {
-        +Execute(DeleteBidContractInput) DeleteBidContractOutput, error
-    }
-
-    class DeleteBidContractInput {
-        +uuid.UUID ContractID
-    }
-
-    class DeleteBidContractOutput {
-        +uuid.UUID ContractID
-        +uuid.UUID ProviderID
-        +uuid.UUID ShipperID
-        +string Status
-        +time.Time DeletedAt
-    }
-
-    class AddTariffVersionUseCase {
-        +Execute(AddTariffVersionInput) AddTariffVersionOutput, error
-    }
-
-    class AddTariffVersionInput {
-        +io.Reader FileReader
-        +string FileFormat
-        +string FileName
-        +uuid.UUID ContractID
-        +uuid.UUID BaseTariffID
-        +uuid.UUID UploadedBy
-        +time.Time* EffectiveFrom
-        +time.Time* EffectiveTo
-    }
-
-    class AddTariffVersionOutput {
-        +uuid.UUID ContractID
-        +string ContractStatus
-        +uuid.UUID TariffID
-        +string TariffName
-        +int TariffVersion
-        +uuid.UUID BaseTariffID
-        +time.Time EffectiveFrom
-        +time.Time EffectiveTo
-        +int LineItemCount
-        +int TotalTariffCount
-        +string Message
-    }
-
-    class RemoveTariffFromContractUseCase {
-        +Execute(RemoveTariffInput) RemoveTariffOutput, error
-    }
-
-    class RemoveTariffInput {
-        +uuid.UUID ContractID
-        +uuid.UUID TariffID
-    }
-
-    class RemoveTariffOutput {
-        +uuid.UUID ContractID
-        +string ContractStatus
-        +uuid.UUID RemovedTariffID
-        +string RemovedTariffName
-        +int RemainingTariffs
-        +string Message
-    }
-
-    class AmendContractTariffUseCase {
-        +Execute(AmendContractTariffInput) AmendContractTariffOutput, error
-    }
-
-    class AmendContractTariffInput {
-        +io.Reader FileReader
-        +string FileFormat
-        +string FileName
-        +uuid.UUID ContractID
-        +uuid.UUID BaseTariffID
-        +uuid.UUID UploadedBy
-        +time.Time* EffectiveFrom
-        +time.Time* EffectiveTo
-    }
-
-    class AmendContractTariffOutput {
-        +uuid.UUID ContractID
-        +string ContractStatus
-        +uuid.UUID TariffID
-        +string TariffName
-        +int TariffVersion
-        +uuid.UUID BaseTariffID
-        +time.Time EffectiveFrom
-        +time.Time EffectiveTo
-        +int LineItemCount
-        +int TotalTariffCount
-        +string Message
-    }
-
-    class UpdateRateEntryTariffUseCase {
-        +Execute(UpdateRateEntryTariffInput) UpdateRateEntryTariffOutput, error
-    }
-
-    class UpdateRateEntryTariffInput {
-        +uuid.UUID RateID
-        +uuid.UUID EntryID
-        +uuid.UUID ContractID
-        +uuid.UUID NewTariffID
-    }
-
-    class UpdateRateEntryTariffOutput {
-        +uuid.UUID RateID
-        +string RateStatus
-        +uuid.UUID EntryID
-        +uuid.UUID OldTariffID
-        +uuid.UUID NewTariffID
-        +int TotalEntryCount
-    }
-
-    %% ============================================
-    %% Adapter (インフラ層インターフェース)
-    %% ============================================
-    class TariffParser {
+    class ServiceScope["サービス適用範囲<br/>(ServiceScope)"] {
         <<interface>>
-        +Parse(io.Reader) ParsedTariffData, error
-        +SupportedFormats() string[]
     }
 
-    class ParsedTariffData {
-        +string TariffName
-        +time.Time EffectiveFrom
-        +time.Time EffectiveTo
-        +ParsedLineItem[] LineItems
-    }
-
-    class ParsedLineItem {
-        +string ChargeCode
-        +string ChargeName
-        +string Category
-        +string ServiceScopeType
-        +map ServiceScopeAttrs
-        +string PricingType
-        +map PricingAttrs
-    }
-
-    class TariffParserFactory {
+    class PricingStrategy["料金計算戦略<br/>(PricingStrategy)"] {
         <<interface>>
-        +GetParser(string) TariffParser, error
-    }
-
-    %% ============================================
-    %% Repository (リポジトリ層インターフェース)
-    %% ============================================
-    class ServiceContractRepository {
-        <<interface>>
-        +Save(ServiceContract) error
-        +FindByID(uuid.UUID) ServiceContract, error
-        +FindByProviderAndShipper(uuid.UUID, uuid.UUID) ServiceContract[], error
-        +FindDraftByProviderAndShipper(uuid.UUID, uuid.UUID) ServiceContract[], error
-        +FindActiveByProviderAndShipper(uuid.UUID, uuid.UUID, time.Time) ServiceContract[], error
-        +Delete(uuid.UUID) error
-    }
-
-    class LogisticsProviderRepository {
-        <<interface>>
-        +FindByID(uuid.UUID) LogisticsProvider, error
-        +FindByName(string) LogisticsProvider[], error
-        +Save(LogisticsProvider) error
-    }
-
-    class RateRepository {
-        <<interface>>
-        +Save(Rate) error
-        +FindByID(uuid.UUID) Rate, error
-        +FindActiveByShipper(uuid.UUID) Rate[], error
-        +Delete(uuid.UUID) error
     }
 
     %% ============================================
     %% Relationships (関連)
     %% ============================================
 
-    %% Shared Layer
-    DomainError ..> DomainErrorCode : uses
-    BaseEvent ..|> DomainEvent : implements
-    EventRecorder o-- DomainEvent : records
-
     %% Route Aggregate
-    PhysicalRoute o-- RouteSegment : contains
-    RouteSegment --> Location : origin
-    RouteSegment --> Location : destination
-    RouteSegment --> Lane : references (optional)
-    RouteSegment ..> TransportMode : uses
-    RouteSegment ..> LocationType : uses
-    Lane --> Location : origin
-    Lane --> Location : destination
-    Lane ..> TransportMode : uses
+    PhysicalRoute "1" *-- "1..n" RouteSegment : 含む
+    RouteSegment --> Location : 出発地
+    RouteSegment --> Location : 到着地
+    RouteSegment --> Lane : 参照(任意)
+    Lane --> Location : 出発地
+    Lane --> Location : 到着地
 
     %% Commercial Aggregate
-    ServiceContract --> LogisticsProvider : provider
-    ServiceContract *-- Tariff : contains (aggregate)
-    ServiceContract ..> ContractStatus : uses
-    ServiceContract ..> DateRange : uses
-    ServiceContract *-- EventRecorder : embeds
-    ServiceContract ..> ContractStatusChanged : emits
-    ServiceContract ..> TariffRegistered : emits
-    ServiceContract ..> TariffAmended : emits
-    TariffAmended --> BaseEvent : extends
-    Tariff o-- TariffLineItem : contains
-    Tariff ..> DateRange : uses
-    TariffLineItem --> ServiceScope : has
-    TariffLineItem --> PricingStrategy : has
+    ServiceContract --> LogisticsProvider : 業者参照
+    ServiceContract "1" *-- "0..n" Tariff : 含む
+    Tariff "1" *-- "1..n" TariffLineItem : 含む
+    Tariff --> Tariff : バージョン元(任意)
+    TariffLineItem --> ServiceScope : 適用範囲
+    TariffLineItem --> PricingStrategy : 計算ロジック
     LogisticsProvider ..> ProviderType : uses
-    ContractStatusChanged --> BaseEvent : extends
-    TariffRegistered --> BaseEvent : extends
 
     %% Rate Aggregate
-    Rate *-- RateEntry : contains (aggregate)
-    Rate ..> RateStatus : uses
-    Rate ..> DateRange : uses
-    Rate *-- EventRecorder : embeds
-    Rate ..> RateActivated : emits
-    Rate ..> RateEntryAdded : emits
-    Rate ..> RateEntryTariffReplaced : emits
-    RateEntryTariffReplaced --> BaseEvent : extends
-    RateEntry --> RouteScope : has
-    RouteScope --> Location : origin (optional)
-    RouteScope --> Location : destination (optional)
-    RouteScope ..> TransportMode : uses
-    RateEntry --> Tariff : references (TariffID)
-    RateEntry --> ServiceContract : references (ContractID)
-    RateEntry --> LogisticsProvider : references (ProviderID)
-    RateActivated --> BaseEvent : extends
-    RateEntryAdded --> BaseEvent : extends
+    Rate "1" *-- "0..n" RateEntry : 含む
+    RateEntry --> RouteScope : 適用ルート範囲
+    RateEntry --> LogisticsProvider : 業者参照
+    RateEntry --> ServiceContract : 契約参照
+    RateEntry --> Tariff : 料金表参照
+    RouteScope --> Location : 出発地(任意)
+    RouteScope --> Location : 到着地(任意)
 
     %% Shipment Aggregate
-    ShipmentPlan --> Rate : references (RateID)
-    Shipment *-- ShipmentPlan : contains
-    Shipment *-- ShipmentCost : contains
-    Shipment --> TrackingUnit : references (TrackingUnitIDs)
-    Shipment ..> ShipmentStatus : uses
-    Shipment *-- EventRecorder : embeds
-    Shipment ..> ShipmentCreated : emits
-    Shipment ..> ShipmentStatusChanged : emits
-    ShipmentPlan *-- ShipmentItem : contains
-    ShipmentPlan --> PhysicalRoute : has
-    ShipmentItem ..> TrackingUnit : references (LoadedOn)
-    ShipmentCost --> EstimatedCost : has
-    ShipmentCost --> EstimatedActualCost : has
-    ShipmentCost --> ActualCost : has
-    ShipmentCreated --> BaseEvent : extends
-    ShipmentStatusChanged --> BaseEvent : extends
+    Shipment "1" *-- "1" ShipmentPlan : 含む
+    Shipment "1" *-- "0..n" ShipmentItem : 含む
+    Shipment "1" *-- "1" ShipmentCost : 含む
+    Shipment --> TrackingUnit : 追跡参照
+    ShipmentPlan --> PhysicalRoute : 計画ルート
+    ShipmentPlan --> Rate : レート参照
+    ShipmentItem --> TrackingUnit : 積載先参照(任意)
+    ShipmentCost --> EstimatedCost : 見積費用(任意)
+    ShipmentCost --> EstimatedActualCost : 想定実費用(任意)
+    ShipmentCost --> ActualCost : 実請求額(任意)
 
     %% Tracking Aggregate
-    TrackingUnit *-- TrackingSegment : contains
-    TrackingUnit ..> TrackingStatus : uses
-    TrackingUnit *-- EventRecorder : embeds
-    TrackingUnit ..> TrackingEventReceived : emits
-    TrackingSegment *-- TrackingEvent : contains
-    TrackingSegment --> Location : actualOrigin
-    TrackingSegment --> Location : actualDestination
-    TrackingSegment ..> TransportMode : uses
-    TrackingSegment ..> TrackingSourceType : uses
-    TrackingSegment ..> TrackingStatus : uses
-    TrackingEvent ..> TrackingSourceType : uses
-    TrackingEventReceived --> BaseEvent : extends
+    TrackingUnit "1" *-- "1..n" TrackingSegment : 含む
+    TrackingSegment "1" *-- "0..n" TrackingEvent : 含む
+    TrackingSegment --> Location : 実出発地
+    TrackingSegment --> Location : 実到着地
 
     %% Cost Relations
-    EstimatedActualCost o-- SegmentCost : contains
-    SegmentCost o-- CostLineItem : contains
-    EstimatedCost o-- CostLineItem : contains
-    ActualCost o-- CostLineItem : contains
-    CostGapAnalysis o-- CostItemGap : contains
-    CostGapAnalysis --> EstimatedActualCost : analyzes
-    CostGapAnalysis --> ActualCost : analyzes
-
-    %% Logic Layer
-    LocationService ..|> ServiceScope : implements
-    TransportationService ..|> ServiceScope : implements
-    FlatStrategy ..|> PricingStrategy : implements
-    CelExpressionStrategy ..|> PricingStrategy : implements
-    CompositeStrategy ..|> PricingStrategy : implements
-    CompositeStrategy o-- PricingStrategy : contains
-
-    %% CalcParam Layer
-    ShipmentContext --> PhysicalRoute : has
-
-    %% Service Layer
-    FreightEstimator ..> ShipmentContext : uses
-    FreightEstimator ..> Tariff : uses
-    FreightEstimator ..> EstimatedCost : produces
-    CostCalculationService ..> ShipmentPlan : uses
-    CostCalculationService ..> Shipment : uses
-    CostCalculationService ..> TrackingUnit : uses
-    CostCalculationService ..> Tariff : uses
-    CostCalculationService ..> EstimatedCost : produces
-    CostCalculationService ..> EstimatedActualCost : produces
-    CostCalculationService ..> CostGapAnalysis : produces
-    ShipmentStatusUpdater ..> Shipment : updates
-    ShipmentStatusUpdater ..> TrackingUnit : uses
-    RouteDeviationService ..> Shipment : uses
-    RouteDeviationService ..> TrackingUnit : uses
-    RouteDeviationService ..> RouteDeviationAnalysis : produces
-
-    %% Route Deviation Analysis
-    RouteDeviationAnalysis o-- SegmentMapping : contains
-    RouteDeviationAnalysis ..> DeviationType : uses
-    SegmentMapping --> RouteSegment : references planned
-    SegmentMapping --> TrackingSegment : references actual
-    SegmentMapping ..> DeviationType : uses
-
-    %% Shared Layer
-    FlatStrategy ..> Money : uses
-    CelExpressionStrategy ..> Money : uses
-    CompositeStrategy ..> Money : uses
-    CostLineItem ..> Money : uses
-    SegmentCost ..> Money : uses
+    EstimatedCost "1" *-- "1..n" CostLineItem : 含む
+    EstimatedActualCost "1" *-- "1..n" SegmentCost : 含む
+    SegmentCost "1" *-- "1..n" CostLineItem : 含む
+    ActualCost "1" *-- "1..n" CostLineItem : 含む
     EstimatedCost ..> Money : uses
     EstimatedActualCost ..> Money : uses
     ActualCost ..> Money : uses
+    SegmentCost ..> Money : uses
+    CostLineItem ..> Money : uses
 
-    %% UseCase Layer
-    CreateBidContractUseCase ..> CreateBidContractInput : uses
-    CreateBidContractUseCase ..> CreateBidContractOutput : produces
-    CreateBidContractUseCase ..> ServiceContractRepository : uses
-    CreateBidContractUseCase ..> ServiceContract : creates
-    RegisterTariffUseCase ..> RegisterTariffInput : uses
-    RegisterTariffUseCase ..> RegisterTariffOutput : produces
-    RegisterTariffUseCase ..> TariffParserFactory : uses
-    RegisterTariffUseCase ..> ServiceContractRepository : uses
-    RegisterTariffUseCase ..> Tariff : creates
-    ApplyContractToRateUseCase ..> ApplyContractToRateInput : uses
-    ApplyContractToRateUseCase ..> ApplyContractToRateOutput : produces
-    ApplyContractToRateUseCase ..> ServiceContractRepository : uses
-    ApplyContractToRateUseCase ..> RateRepository : uses
-    ApplyContractToRateUseCase ..> Rate : updates
-    ApplyContractToRateUseCase ..> ServiceContract : reads
-    UpdateContractPeriodUseCase ..> UpdateContractPeriodInput : uses
-    UpdateContractPeriodUseCase ..> UpdateContractPeriodOutput : produces
-    UpdateContractPeriodUseCase ..> ServiceContractRepository : uses
-    UpdateContractPeriodUseCase ..> ServiceContract : updates
-    DeleteBidContractUseCase ..> DeleteBidContractInput : uses
-    DeleteBidContractUseCase ..> DeleteBidContractOutput : produces
-    DeleteBidContractUseCase ..> ServiceContractRepository : uses
-    DeleteBidContractUseCase ..> ServiceContract : deletes
-    AddTariffVersionUseCase ..> AddTariffVersionInput : uses
-    AddTariffVersionUseCase ..> AddTariffVersionOutput : produces
-    AddTariffVersionUseCase ..> TariffParserFactory : uses
-    AddTariffVersionUseCase ..> ServiceContractRepository : uses
-    AddTariffVersionUseCase ..> Tariff : creates
-    RemoveTariffFromContractUseCase ..> RemoveTariffInput : uses
-    RemoveTariffFromContractUseCase ..> RemoveTariffOutput : produces
-    RemoveTariffFromContractUseCase ..> ServiceContractRepository : uses
-    RemoveTariffFromContractUseCase ..> ServiceContract : updates
-    AmendContractTariffUseCase ..> AmendContractTariffInput : uses
-    AmendContractTariffUseCase ..> AmendContractTariffOutput : produces
-    AmendContractTariffUseCase ..> TariffParserFactory : uses
-    AmendContractTariffUseCase ..> ServiceContractRepository : uses
-    AmendContractTariffUseCase ..> Tariff : creates
-    AmendContractTariffUseCase ..> ServiceContract : updates
-    UpdateRateEntryTariffUseCase ..> UpdateRateEntryTariffInput : uses
-    UpdateRateEntryTariffUseCase ..> UpdateRateEntryTariffOutput : produces
-    UpdateRateEntryTariffUseCase ..> RateRepository : uses
-    UpdateRateEntryTariffUseCase ..> ServiceContractRepository : uses
-    UpdateRateEntryTariffUseCase ..> Rate : updates
-    UpdateRateEntryTariffUseCase ..> ServiceContract : reads
+    %% Notes (ビジネスルール・制約)
+    note for ServiceContract "・ステータス遷移: DRAFT → CONTRACTED → EXPIRED/CANCELLED<br/>・DRAFT状態: 入札段階で複数業者から料金表を受領<br/>・CONTRACTED状態: 契約成立後、AddTariffAmendmentで料金表改定可能<br/>・tariffs, statusフィールドはprivate、getter経由でアクセス"
 
-    %% Adapter Layer
-    TariffParser ..> ParsedTariffData : produces
-    ParsedTariffData o-- ParsedLineItem : contains
-    TariffParserFactory ..> TariffParser : provides
+    note for Tariff "・バージョン管理: 同じ名前でもVersionが異なれば別レコード<br/>・Version=1, BaseVersionID=nil: 初版<br/>・Version>1, BaseVersionID設定: 改定版<br/>・ServiceContract集約内のエンティティ（ContractIDフィールドなし）"
 
-    %% Repository Layer
-    ServiceContractRepository ..> ServiceContract : manages
-    LogisticsProviderRepository ..> LogisticsProvider : manages
-    RateRepository ..> Rate : manages
+    note for Rate "・ステータス遷移: DRAFT → ACTIVE → EXPIRED<br/>・複数業者のTariffからルート単位で選択・組み合わせた社内レート<br/>・DRAFT状態: エントリ追加・削除・Tariff差し替え可能<br/>・ACTIVE状態: エントリの変更不可<br/>・entries, statusフィールドはprivate、getter経由でアクセス"
+
+    note for Shipment "・計画（PlannedRoute）の管理者<br/>・TrackingUnitへの参照はIDのみ保持（集約境界）<br/>・ShipmentStatusはTrackingUnitの状態から導出（Derived Status）<br/>・trackingUnitIDs, status, costフィールドはprivate、getter経由でアクセス"
+
+    note for TrackingUnit "・実績の記録者（計画への参照を持たない）<br/>・物理的な輸送単位（コンテナ1本、トラック1台など）<br/>・currentStatusは全セグメントの状態から再計算<br/>・segments, currentStatusフィールドはprivate、getter経由でアクセス"
+
+    note for RouteScope "・レートエントリの適用ルート範囲を定義<br/>・OriginID=nil: 全出発地に適用<br/>・DestinationID=nil: 全到着地に適用<br/>・TransportMode=nil: 全輸送モードに適用"
+
+    note for Money "・通貨必須の金額値オブジェクト<br/>・Add/Sub時に通貨一致チェック実施<br/>・異なる通貨の演算時はCURRENCY_MISMATCHエラー"
 ```
 
 ## レイヤー説明
 
 ### 1. Shared Layer (共通値オブジェクト層)
-- **Money**: 金額と通貨を表現。算術メソッド（Add, Sub, Multiply）と比較メソッド（IsZero, IsPositive, GreaterThan等）を提供
+- **Money**: 金額と通貨を表現。通貨一致チェック付きの演算メソッドを提供
 - **DateRange**: 期間を表現（契約有効期限、料金適用期間など）
 - **TransportMode**: 輸送モード（海上、航空、トラック、鉄道）
 - **LocationType**: 拠点種別（港、空港、倉庫など）
 - **TrackingStatus**: トラッキングステータス（BOOKED, IN_TRANSIT, ARRIVED, EXCEPTION）
-- **DomainError**: 構造化されたドメインエラー（コード、メッセージ、詳細、原因）
-- **DomainEvent / BaseEvent**: ドメインイベントインターフェースと基底実装
-- **EventRecorder**: 集約ルートに埋め込んでイベントを記録・取得する仕組み
 
 ### 2. Route Aggregate (ルーティング集約)
 - **Location**: 物理的な拠点（港、倉庫、空港など）
@@ -1113,23 +460,18 @@ classDiagram
   - 入札プロセスにおいて物流企業から提示された料金情報を管理
   - ContractStatus: DRAFT（入札段階）→ CONTRACTED（契約成立）→ EXPIRED/CANCELLED
   - `status`, `tariffs` フィールドはprivateでgetter経由でアクセス
-  - EventRecorderを埋め込み、ContractStatusChanged / TariffRegistered / TariffAmended イベントを発行
-  - `AddTariffAmendment()`: CONTRACTED状態で料金表の改定版（新バージョン）を追加
   - **入札フロー**:
-    1. CreateBidContractUseCase: DRAFT契約を作成
-    2. RegisterTariffUseCase: 業者から提示された料金表を登録
+    1. DRAFT契約を作成
+    2. 業者から提示された料金表を登録
     3. 荷主が各DRAFT契約を比較検討
-    4. MarkAsContracted(): 最適な契約を正式化
-    5. MarkAsCancelled(): 他の契約をキャンセル
+    4. 最適な契約を正式化（CONTRACTED）
+    5. 他の契約をキャンセル（CANCELLED）
 - **LogisticsProvider**: 物流企業（キャリア、フォワーダーなど）
 - **Tariff**: 料金表（契約に紐づく料金項目の集合）
-  - ServiceContract集約内のエンティティ（ContractIDフィールドは持たない。集約ルートが管理）
+  - ServiceContract集約内のエンティティ（ContractIDフィールドは持たない）
   - **バージョン管理**: 同じ業者から改定版の料金表を受け取った場合、履歴を保持
     - `Version`: バージョン番号（1, 2, 3...）
     - `BaseVersionID`: 元となったTariffのID（初版の場合はnil）
-    - 同じ名前でもバージョンが異なれば別レコードとして管理
-    - `FindTariffsByName()`: 指定された名前の全バージョンを取得
-    - `FindLatestTariffVersion()`: 最新バージョンのみ取得
 - **TariffLineItem**: 個別の料金定義（THC、運賃など）
 
 ### 4. Rate Aggregate (社内レート集約)
@@ -1137,8 +479,6 @@ classDiagram
   - 荷主が複数業者のTariffからルート単位で選択・組み合わせた通期レート
   - RateStatus: DRAFT（作成中）→ ACTIVE（使用可能）→ EXPIRED（期限切れ）
   - `status`, `entries` フィールドはprivateでgetter経由でアクセス
-  - EventRecorderを埋め込み、RateActivated / RateEntryAdded / RateEntryTariffReplaced イベントを発行
-  - `ReplaceEntryTariff()`: DRAFT状態でエントリのTariffIDを新しいTariffIDに差し替え
 - **RateEntry**: レートの構成要素（特定の業者の特定のTariffをまるごと採用）
 - **RouteScope**: レートエントリの適用ルート範囲（値オブジェクト）
 
@@ -1146,9 +486,6 @@ classDiagram
 - **Shipment**: 出荷案件（集約ルート）
   - 荷主視点での「1つの仕事」を表現
   - `status`, `cost`, `trackingUnitIDs` フィールドはprivateでgetter経由でアクセス
-  - `NewShipment()` ファクトリ関数でバリデーション付き生成
-  - EventRecorderを埋め込み、ShipmentCreated / ShipmentStatusChanged イベントを発行
-  - ルート逸脱分析はRouteDeviationServiceに委譲
 - **ShipmentPlan**: 計画情報（エンティティ）。RateIDで社内レートを参照
 - **ShipmentItem**: 貨物明細（エンティティ）
 - **ShipmentCost**: 費用情報（エンティティ）
@@ -1156,95 +493,20 @@ classDiagram
 ### 6. Tracking Aggregate (追跡集約)
 - **TrackingUnit**: 追跡単位（集約ルート）
   - `currentStatus`, `segments` フィールドはprivateでgetter経由でアクセス
-  - `NewTrackingUnit()` ファクトリ関数でバリデーション付き生成
-  - EventRecorderを埋め込み、TrackingEventReceived イベントを発行
   - 計画への参照を持たない：純粋な実績記録にフォーカス
 - **TrackingSegment**: 実際に発生した移動区間（エンティティ）
 - **TrackingEvent**: 追跡イベント（値オブジェクト）
 
-### 7. CalcParam Layer (計算パラメータ層)
-- **ShipmentContext**: 計算用DTO（計算インターフェース）
-  - パッケージ: `calcparam`（Go stdlib `context` との名前衝突を回避）
-  - 物理ルート情報、貨物情報（数量、重量、容積）、カスタム属性
-
-### 8. Cost Layer (費用層)
+### 7. Cost (費用関連)
 - **EstimatedCost**: 見積費用（計画時点での推定費用）
 - **EstimatedActualCost**: 想定実費用（トラッキング実績ベース）
 - **ActualCost**: 実請求額（外部インボイスデータ）
 - **SegmentCost**: セグメント単位の費用内訳
 - **CostLineItem**: 費用明細行
-- **CostGapAnalysis**: 費用差異分析結果
-- **CostItemGap**: 項目別費用差異
 
-### 9. Logic Layer (ビジネスロジック層)
+### 8. Logic Layer (ビジネスロジック層)
 - **ServiceScope**: 料金適用範囲を判定するインターフェース
-  - LocationService: 場所ベースのサービス（THC、保管など）
-  - TransportationService: 輸送ベースのサービス（海上運賃、ドレージなど）
 - **PricingStrategy**: 料金計算ロジックのインターフェース
-  - FlatStrategy: 定額料金（Money.Multiply使用）
-  - CelExpressionStrategy: CEL式による動的計算
-  - CompositeStrategy: 複数戦略の合成（Money.Add使用、エラーハンドリング付き）
-
-### 10. Service Layer (ドメインサービス層)
-- **FreightEstimator**: 見積計算サービス
-  - ShipmentContextとTariffから見積費用を計算
-- **CostCalculationService**: 費用計算サービス
-  - 計画ベースの見積費用算出
-  - トラッキング実績ベースの想定費用算出（セグメント単位）
-  - 費用差異分析（Money算術メソッド使用）
-- **ShipmentStatusUpdater**: ステータス更新サービス
-  - TrackingUnitの状態からShipmentのステータスを計算・更新
-  - serviceパッケージに配置（集約境界を越えたステータス同期）
-- **RouteDeviationService**: ルート逸脱分析サービス
-  - Shipmentの計画とTrackingUnitの実績を突合
-  - Shipment集約から分離されたドメインサービス
-
-### 11. Route Deviation Analysis (ルート逸脱分析)
-- **RouteDeviationAnalysis**: ルート逸脱分析結果（値オブジェクト）
-- **SegmentMapping**: 計画セグメントと実績セグメントの対応関係
-- **RouteDeviationService.AnalyzeDeviation()**: ドメインサービスメソッド
-
-### 12. UseCase Layer (アプリケーション層)
-- **CreateBidContractUseCase**: 入札契約作成ユースケース
-  - 入札プロセスにおいて、各物流業者との契約をDRAFT状態で作成
-  - BidRequestIDで複数業者への入札をグループ化
-  - 契約は初期状態でDRAFT、料金表の登録待ち
-- **UpdateContractPeriodUseCase**: 契約期間更新ユースケース
-  - DRAFT状態の契約の有効期間（ValidPeriod）を変更
-  - 入札プロセスで契約期間を調整する際に使用
-- **DeleteBidContractUseCase**: 入札契約削除ユースケース
-  - DRAFT状態の契約をCANCELLED状態にする（論理削除）
-  - 入札で不要になった契約を削除
-- **RegisterTariffUseCase**: 料金表登録ユースケース
-  - contract.Status() / contract.TariffCount() / contract.Tariffs() getter使用
-  - DRAFT契約に物流業者から提示された料金表を登録
-- **AddTariffVersionUseCase**: 料金表バージョン追加ユースケース
-  - 既存のTariffの新バージョンを追加（履歴保持）
-  - 同じ業者から改定版の料金表を受け取った場合に使用
-  - NewTariffVersion()で新バージョンを作成し、古いバージョンも保持
-- **RemoveTariffFromContractUseCase**: 料金表削除ユースケース
-  - DRAFT状態の契約から料金表を削除
-  - 不要な料金表を契約から除外
-- **AmendContractTariffUseCase**: 契約アメンドメント（料金表改定）ユースケース
-  - CONTRACTED状態の契約に対して料金表の改定版（新バージョン）を追加
-  - BAF等の市況変動や料金表の誤りにより、既に成立した契約の料金表を改定する
-  - NewTariffVersion()で新バージョンを作成し、AddTariffAmendment()で契約に追加
-- **ApplyContractToRateUseCase**: 契約反映ユースケース
-  - CONTRACTED状態の契約から料金表（一部または全部）をDRAFT状態のRateに反映
-  - contract.IsActive() でCONTRACTED状態を検証、contract.Tariffs() で料金表を取得
-- **UpdateRateEntryTariffUseCase**: レートエントリTariff差し替えユースケース
-  - DRAFT状態のRateのエントリのTariffIDを新しいTariffIDに差し替え
-  - 契約アメンドメント後にレートに反映する際に使用
-
-### 13. Adapter Layer (インフラ層インターフェース)
-- **TariffParser**: 料金表ファイル解析インターフェース
-- **ParsedTariffData**: 解析された料金表データ（中間データ構造）
-- **TariffParserFactory**: パーサーファクトリー
-
-### 14. Repository Layer (リポジトリ層インターフェース)
-- **ServiceContractRepository**: ServiceContract集約のリポジトリ
-- **LogisticsProviderRepository**: LogisticsProvider集約のリポジトリ
-- **RateRepository**: Rate集約のリポジトリ
 
 ## 主要な設計パターン
 
@@ -1253,64 +515,35 @@ classDiagram
    - ServiceContractを集約ルートとしてTariffを管理
    - Rateを集約ルートとしてRateEntryを管理（複数業者のTariffを組み合わせた社内レート）
    - 集約間の参照はIDのみ（疎結合）
+
 2. **カプセル化**:
    - 集約ルートの重要フィールドはprivate（小文字）
    - getter メソッドで安全にアクセス（コレクションはコピー返却）
    - ファクトリ関数でバリデーション付き生成
-3. **ドメインイベント**:
-   - EventRecorderを集約ルートに埋め込み
-   - 状態変更時にイベントを発行（ContractStatusChanged, ShipmentCreated等）
-   - PullEvents()で後続処理に引き渡し
-4. **構造化エラー**:
-   - DomainError型でコード、メッセージ、詳細、原因を保持
-   - errors.New()ではなくNewDomainError()を使用
-   - IsCode()ヘルパーでエラー種別判定
-5. **関心の分離**: 計画と実績の明確な分離
+
+3. **関心の分離**: 計画と実績の明確な分離
    - **Shipment**: 計画（PlannedRoute）の管理者
    - **TrackingUnit**: 実績の記録者（計画への参照を持たない）
-   - **RouteDeviationService**: 計画と実績の突合（ドメインサービス）
-   - **ShipmentStatusUpdater**: 集約を越えたステータス同期（ドメインサービス）
-6. **Strategy Pattern**: PricingStrategyによる計算ロジックの分離
-7. **Composite Pattern**: CompositeStrategyによる料金の合成
-8. **Value Object**: Money（算術メソッド付き）, DateRange（不変性、等価性）
-9. **Domain Service**: 複数集約にまたがるロジック
-   - FreightEstimator, CostCalculationService, ShipmentStatusUpdater, RouteDeviationService
-10. **Factory Pattern**:
-    - NewServiceContract(), NewShipment(), NewTrackingUnit(): バリデーション付き生成
-    - NewTariff(): 不変条件を保証したTariff生成
-    - TariffParserFactory: ファイル形式に応じたパーサー選択
-11. **UseCase Pattern (Application Service)**:
-    - RegisterTariffUseCase: getter経由でのprivateフィールドアクセス
-12. **Adapter Pattern (Hexagonal Architecture)**: TariffParser
-13. **Repository Pattern**: ドメイン層ではインターフェースのみ定義
-14. **State Pattern**: ContractStatus, ShipmentStatus のライフサイクル管理
+
+4. **Value Object**: Money（通貨一致チェック付き演算）, DateRange（期間表現）, RouteScope（ルート適用範囲）
+
+5. **バージョン管理**: Tariffのバージョン管理により料金表の改定履歴を保持
 
 ## 費用計算の流れ
 
 ### 1. 計画時点（見積）
 ```
-ShipmentPlan → CostCalculationService → EstimatedCost
-                ↓ uses
-              Tariff
+ShipmentPlan → EstimatedCost
 ```
 
 ### 2. トラッキング時点（想定実費用）
 ```
-Shipment + TrackingUnit[] → CostCalculationService → EstimatedActualCost
-                              ↓ uses                    ↓ contains
-                            Tariff                   SegmentCost[]
+Shipment + TrackingUnit[] → EstimatedActualCost
+                              ↓ contains
+                           SegmentCost[]
 ```
 
-### 3. 請求時点（Gap分析）
+### 3. 請求時点
 ```
-EstimatedActualCost + ActualCost → CostCalculationService → CostGapAnalysis
-                                                               ↓ contains
-                                                            CostItemGap[]
+EstimatedActualCost + ActualCost → CostGapAnalysis
 ```
-
-## セグメント単位の費用計算ステータス
-
-- **COMPLETED**: 完了済み（実績ベースで確定）
-- **IN_PROGRESS**: 進行中（按分計算による推定）
-- **PLANNED**: 未着手（計画ベースの推定）
-- **NOT_APPLICABLE**: 適用対象外

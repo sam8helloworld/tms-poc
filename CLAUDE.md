@@ -157,3 +157,59 @@ The current domain model is documented in Mermaid format at `spec/domain-model.m
 3. Ensure the diagram accurately represents all entities, value objects, aggregates, and their relationships
 
 The diagram should be kept in sync with the codebase to serve as living documentation.
+
+#### Domain Model Diagram Style Guide
+
+The domain model diagram follows DDD (Domain-Driven Design) conceptual model principles. When updating the diagram, adhere to these rules:
+
+1. **Focus on Domain Concepts, Not Implementation**:
+   - Include only attributes (properties), NOT methods
+   - Represent the domain's conceptual model, not the detailed class design
+   - Class names should include both Japanese and English: `class Money["金額<br/>(Money)"]`
+
+2. **Aggregate Boundaries**:
+   - Use `namespace` blocks to visually group aggregates (e.g., `namespace 商取引集約 { ... }`)
+   - Inside aggregates: Use composition (`*--`) to show strong ownership
+   - Between aggregates: Use arrows (`-->`) to show ID references (loose coupling)
+   - Always include multiplicity on relationships: `"1"`, `"0..n"`, `"1..n"`
+
+3. **Business Rules as Notes**:
+   - Use `note for [ClassName]` to document important business rules and constraints
+   - Examples: status transitions, validation rules, versioning logic, encapsulation notes
+   - Format: `note for ServiceContract "・Rule 1<br/>・Rule 2<br/>・Rule 3"`
+
+4. **What NOT to Include**:
+   - UseCases (Application layer)
+   - Services (Domain services or Application services)
+   - Repositories (Infrastructure interfaces)
+   - Adapters (Infrastructure implementations)
+   - Method signatures or implementation details
+
+5. **Relationship Types**:
+   - `*--` : Composition (aggregate owns entity)
+   - `-->` : ID reference (cross-aggregate reference)
+   - `..>` : Dependency (uses enumeration or interface)
+
+**Example**:
+```mermaid
+namespace 商取引集約 {
+    class ServiceContract["サービス契約<br/>(ServiceContract)"] {
+        <<Aggregate Root>>
+        ID: UUID
+        ProviderID: UUID
+        status: ContractStatus
+        tariffs: Tariff[]
+    }
+
+    class Tariff["料金表<br/>(Tariff)"] {
+        ID: UUID
+        Name: String
+        Version: Int
+    }
+}
+
+ServiceContract "1" *-- "0..n" Tariff : 含む
+ServiceContract --> LogisticsProvider : 業者参照
+
+note for ServiceContract "・ステータス遷移: DRAFT → CONTRACTED<br/>・status, tariffsフィールドはprivate"
+```
