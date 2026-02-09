@@ -156,11 +156,18 @@ classDiagram
     %% Commercial Aggregate (商取引集約) - domain/contract
     %% ============================================
     namespace 商取引集約 {
-        class LogisticsProvider["物流企業<br/>(LogisticsProvider)"] {
+        class Vendor["ベンダー<br/>(Vendor)"] {
             <<Aggregate Root>>
             ID: UUID
             Name: String
             Type: ProviderType
+            CreditRating: CreditRating
+            PaymentTerms: PaymentTerms
+            PreferredVendor: Bool
+            Capabilities: VendorCapability[]
+            Contacts: VendorContact[]
+            CreatedAt: Time
+            UpdatedAt: Time
         }
 
         class ProviderType["業者種別<br/>(ProviderType)"] {
@@ -172,6 +179,41 @@ classDiagram
             NVOCC
             WAREHOUSE
             CUSTOMS_BROKER
+        }
+
+        class CreditRating["信用格付<br/>(CreditRating)"] {
+            <<enumeration>>
+            AAA
+            AA
+            A
+            BBB
+            BB
+            B
+            CCC
+            CC
+            C
+            D
+        }
+
+        class PaymentTerms["支払条件<br/>(PaymentTerms)"] {
+            <<Value Object>>
+            DaysFromInvoice: Int
+            Currency: String
+        }
+
+        class VendorCapability["ベンダー能力<br/>(VendorCapability)"] {
+            <<Value Object>>
+            ServiceType: String
+            CoverageArea: String[]
+        }
+
+        class VendorContact["ベンダー担当者<br/>(VendorContact)"] {
+            <<Value Object>>
+            Name: String
+            Role: String
+            Email: String
+            Phone: String
+            IsPrimaryPOC: Bool
         }
 
         class ServiceContract["サービス契約<br/>(ServiceContract)"] {
@@ -254,6 +296,38 @@ classDiagram
             OriginID: UUID
             DestinationID: UUID
             TransportMode: TransportMode
+        }
+
+        class LogisticsResource["物流リソース<br/>(LogisticsResource)"] {
+            ProviderID: UUID
+            Name: String
+            Capabilities: ResourceCapability[]
+            IsAvailable: Bool
+        }
+
+        class ResourceCapability["リソース能力<br/>(ResourceCapability)"] {
+            <<Value Object>>
+            RouteScope: RouteScope
+            TransportMode: TransportMode
+            Capacity: CapacitySpec
+            RateLevel: RateLevel
+            LeadTimeDays: Int
+            ReliabilityPct: Int
+        }
+
+        class CapacitySpec["能力スペック<br/>(CapacitySpec)"] {
+            <<Value Object>>
+            MaxWeightKG: Decimal
+            MaxVolumeM3: Decimal
+            ContainerTypes: String[]
+            SpecialHandling: String[]
+        }
+
+        class RateLevel["料金レベル<br/>(RateLevel)"] {
+            <<enumeration>>
+            HIGH
+            MEDIUM
+            LOW
         }
     }
 
@@ -370,6 +444,63 @@ classDiagram
             DRIVER_APP
             IOT_DEVICE
         }
+
+        class ServiceOperator["実行業者<br/>(ServiceOperator)"] {
+            ProviderID: UUID
+            Name: String
+            Role: OperatorRole
+            OperationalContacts: OperationalContact[]
+            PerformanceMetrics: PerformanceMetrics
+            IntegrationChannels: IntegrationChannel[]
+        }
+
+        class OperatorRole["業者役割<br/>(OperatorRole)"] {
+            <<enumeration>>
+            TRANSPORTER
+            WAREHOUSE
+            CUSTOMS_BROKER
+            DELIVERY_AGENT
+            PACKING_SERVICE
+            INSPECTOR
+        }
+
+        class OperationalContact["実務担当者<br/>(OperationalContact)"] {
+            <<Value Object>>
+            Name: String
+            Role: String
+            Email: String
+            Phone: String
+            MobilePhone: String
+            Available24x7: Bool
+            Languages: String[]
+            IsPrimaryPOC: Bool
+        }
+
+        class PerformanceMetrics["実行品質<br/>(PerformanceMetrics)"] {
+            <<Value Object>>
+            OnTimeDeliveryRate: Decimal
+            AverageResponseTime: Int
+            ExceptionRate: Decimal
+            LastUpdated: Time
+        }
+
+        class IntegrationChannel["連携チャネル<br/>(IntegrationChannel)"] {
+            <<Value Object>>
+            Type: IntegrationChannelType
+            Endpoint: String
+            IsActive: Bool
+            Credentials: String
+        }
+
+        class IntegrationChannelType["連携チャネル種別<br/>(IntegrationChannelType)"] {
+            <<enumeration>>
+            API
+            EDI
+            WEBHOOK
+            EMAIL
+            DRIVER_APP
+            MANUAL
+        }
     }
 
     %% ============================================
@@ -457,8 +588,12 @@ classDiagram
     Lane --> Location : 到着地
 
     %% Commercial Aggregate
-    ServiceContract --> LogisticsProvider : 業者参照
-    LogisticsProvider ..> ProviderType : uses
+    ServiceContract --> Vendor : 業者参照(ProviderID)
+    Vendor ..> ProviderType : uses
+    Vendor ..> CreditRating : uses
+    Vendor "1" *-- "0..n" PaymentTerms : 含む
+    Vendor "1" *-- "0..n" VendorCapability : 含む
+    Vendor "1" *-- "0..n" VendorContact : 含む
 
     %% Tariff Aggregate
     Tariff --> ServiceContract : 契約参照(ContractID)
@@ -470,11 +605,16 @@ classDiagram
     %% Rate Aggregate
     Rate "1" *-- "0..n" RateEntry : 含む
     RateEntry --> RouteScope : 適用ルート範囲
-    RateEntry --> LogisticsProvider : 業者参照
+    RateEntry --> Vendor : 業者参照(ProviderID)
     RateEntry --> ServiceContract : 契約参照
     RateEntry --> Tariff : 料金表参照
     RouteScope --> Location : 出発地(任意)
     RouteScope --> Location : 到着地(任意)
+    LogisticsResource --> Vendor : 業者参照(ProviderID)
+    LogisticsResource "1" *-- "0..n" ResourceCapability : 含む
+    ResourceCapability --> RouteScope : 適用範囲
+    ResourceCapability --> CapacitySpec : 能力スペック
+    ResourceCapability ..> RateLevel : uses
 
     %% Shipment Aggregate
     Shipment "1" *-- "1" ShipmentPlan : 含む
@@ -494,6 +634,11 @@ classDiagram
     TrackingSegment "1" *-- "0..n" TrackingEvent : 含む
     TrackingSegment --> Location : 実出発地
     TrackingSegment --> Location : 実到着地
+    ServiceOperator --> Vendor : 業者参照(ProviderID)
+    ServiceOperator "1" *-- "0..n" OperationalContact : 含む
+    ServiceOperator "1" *-- "1" PerformanceMetrics : 含む
+    ServiceOperator "1" *-- "0..n" IntegrationChannel : 含む
+    ServiceOperator ..> OperatorRole : uses
 
     %% Cost Relations
     EstimatedCost "1" *-- "1..n" CostLineItem : 含む
@@ -524,6 +669,12 @@ classDiagram
     note for RouteScope "・レートエントリの適用ルート範囲を定義<br/>・OriginID=nil: 全出発地に適用<br/>・DestinationID=nil: 全到着地に適用<br/>・TransportMode=nil: 全輸送モードに適用"
 
     note for Money "・通貨必須の金額値オブジェクト<br/>・Add/Sub時に通貨一致チェック実施<br/>・異なる通貨の演算時はCURRENCY_MISMATCHエラー"
+
+    note for Vendor "・契約コンテキストにおける物流企業（契約の主体）<br/>・信用格付、支払条件など商取引関心事を管理<br/>・LogisticsProviderは後方互換性のためのエイリアス<br/>・ProviderIDで他コンテキストと紐づく（コンテキストマッピング）"
+
+    note for LogisticsResource "・レート・計画コンテキストにおける物流企業（能力とコストの提供者）<br/>・"誰が運べるか"ではなく"何を運べるか"に焦点<br/>・ProviderIDで契約コンテキストのVendorと紐づく<br/>・能力（Capability）とレート特性を持つ"
+
+    note for ServiceOperator "・実行コンテキストにおける物流企業（業務の遂行者）<br/>・実務担当者、連絡先、実行役割に焦点<br/>・ProviderIDで契約コンテキストのVendorと紐づく<br/>・実行品質メトリクスとシステム連携情報を持つ"
 ```
 
 ## レイヤー説明
@@ -563,7 +714,11 @@ classDiagram
     3. 荷主が各DRAFT契約を比較検討
     4. 最適な契約を正式化（CONTRACTED）
     5. 他の契約をキャンセル（CANCELLED）
-- **LogisticsProvider**: 物流企業（キャリア、フォワーダーなど）
+- **Vendor**: 契約コンテキストにおける物流企業（契約の主体）
+  - 契約相手としての企業情報を管理
+  - 信用格付（CreditRating）、支払条件（PaymentTerms）、優先ベンダーフラグ
+  - 提供可能サービス（VendorCapability）、商務担当者情報（VendorContact）
+  - LogisticsProviderは後方互換性のためのエイリアス
 
 ### 3.5. Tariff Aggregate (料金表集約)
 - **Tariff**: 料金表（独立した集約ルート）
@@ -581,6 +736,12 @@ classDiagram
   - `status`, `entries` フィールドはprivateでgetter経由でアクセス
 - **RateEntry**: レートの構成要素（特定の業者の特定のTariffをまるごと採用）
 - **RouteScope**: レートエントリの適用ルート範囲（値オブジェクト）
+- **LogisticsResource**: レート・計画コンテキストにおける物流企業（能力とコストの提供者）
+  - "誰が運べるか"ではなく"何を運べるか"に焦点を当てたモデル
+  - ProviderIDで契約コンテキストのVendorと紐づく（コンテキストマッピング）
+  - ResourceCapability: 提供可能な輸送能力（ルート範囲、輸送モード、能力スペック）
+  - RateLevel: 料金レベル（HIGH/MEDIUM/LOW）による簡易判断
+  - LeadTimeDays, ReliabilityPctなどの計画指標
 
 ### 5. Shipment Aggregate (出荷案件集約)
 - **Shipment**: 出荷案件（集約ルート）
@@ -601,6 +762,13 @@ classDiagram
 - **TrackingSegment**: 実際に発生した移動区間（エンティティ）
   - 実績コンテキスト専用の属性（実績日時、キャリア追跡番号、情報源）を持つ
 - **TrackingEvent**: 追跡イベント（値オブジェクト）
+- **ServiceOperator**: 実行コンテキストにおける物流企業（業務の遂行者）
+  - 実務担当者、連絡先、実行役割に焦点を当てたモデル
+  - ProviderIDで契約コンテキストのVendorと紐づく（コンテキストマッピング）
+  - OperatorRole: 具体的な役割（TRANSPORTER, WAREHOUSE, CUSTOMS_BROKER等）
+  - OperationalContact: 実務担当者情報（24x7対応可否、使用言語等）
+  - PerformanceMetrics: 実行品質（定時配送率、平均応答時間、例外発生率）
+  - IntegrationChannel: システム連携（API, EDI, WEBHOOK, DRIVER_APP等）
 
 ### 7. Cost (費用関連)
 - **EstimatedCost**: 見積費用（計画時点での推定費用）
@@ -642,6 +810,14 @@ classDiagram
 5. **Value Object**: Money（通貨一致チェック付き演算）, DateRange（期間表現）, RouteScope（ルート適用範囲）, StandardRouteLeg（標準ルート区間）
 
 6. **バージョン管理**: Tariffのバージョン管理により料金表の改定履歴を保持
+
+7. **コンテキストマッピング（Context Mapping）**:
+   - 物流企業（LSP）を境界づけられたコンテキストごとに異なるモデルで表現
+   - **Vendor** (契約コンテキスト): 契約の主体。信用格付、支払条件など商取引関心事
+   - **LogisticsResource** (レート・計画コンテキスト): 能力とコストの提供者。輸送能力、レート特性
+   - **ServiceOperator** (実行コンテキスト): 業務の遂行者。実務担当者、実行品質、システム連携
+   - 各モデルは`ProviderID`で契約コンテキストの`Vendor`と紐づく（Shared Kernel + ACL）
+   - 同じProviderIDでも、コンテキストが異なれば関心事と属性が異なる
 
 ## ルート管理のライフサイクル
 
