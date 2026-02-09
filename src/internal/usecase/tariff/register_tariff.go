@@ -8,9 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sam8helloworld/tms-poc/internal/adapter/parser"
-	"github.com/sam8helloworld/tms-poc/internal/domain/commercial"
-	"github.com/sam8helloworld/tms-poc/internal/domain/logic/pricing"
-	"github.com/sam8helloworld/tms-poc/internal/domain/logic/scope"
+	"github.com/sam8helloworld/tms-poc/internal/domain/contract"
+	"github.com/sam8helloworld/tms-poc/internal/domain/pricing"
 	"github.com/sam8helloworld/tms-poc/internal/domain/route"
 	"github.com/sam8helloworld/tms-poc/internal/domain/shared"
 )
@@ -29,16 +28,16 @@ type RegisterTariffUseCase struct {
 	validator     parser.TariffDataValidator
 
 	// 本来利用すべきリポジトリ（コメントアウト）
-	// contractRepo commercial.ServiceContractRepository
-	// tariffRepo   commercial.TariffRepository
+	// contractRepo contract.ServiceContractRepository
+	// tariffRepo   pricing.TariffRepository
 }
 
 // NewRegisterTariffUseCase: RegisterTariffUseCaseのコンストラクタ
 func NewRegisterTariffUseCase(
 	parserFactory parser.TariffParserFactory,
 	validator parser.TariffDataValidator,
-	// contractRepo commercial.ServiceContractRepository,
-	// tariffRepo commercial.TariffRepository,
+	// contractRepo contract.ServiceContractRepository,
+	// tariffRepo pricing.TariffRepository,
 ) *RegisterTariffUseCase {
 	return &RegisterTariffUseCase{
 		parserFactory: parserFactory,
@@ -158,7 +157,7 @@ func (uc *RegisterTariffUseCase) validateInput(input RegisterTariffInput) error 
 func (uc *RegisterTariffUseCase) getOrCreateContract(
 	ctx context.Context,
 	input RegisterTariffInput,
-) (*commercial.ServiceContract, bool, error) {
+) (*contract.ServiceContract, bool, error) {
 	// 既存の契約IDが指定されている場合は取得
 	if input.ContractID != nil {
 		// contract, err := uc.contractRepo.FindByID(ctx, *input.ContractID)
@@ -178,7 +177,7 @@ func (uc *RegisterTariffUseCase) getOrCreateContract(
 		// return contract, false, nil
 
 		// コメントアウト中のため、ダミーのDRAFT契約を返す
-		contract, err := commercial.NewServiceContract(
+		contract, err := contract.NewServiceContract(
 			input.ProviderID,
 			input.ShipperID,
 			*input.ContractValidFrom,
@@ -192,7 +191,7 @@ func (uc *RegisterTariffUseCase) getOrCreateContract(
 	}
 
 	// 新規契約を作成（DRAFT状態）
-	contract, err := commercial.NewServiceContract(
+	contract, err := contract.NewServiceContract(
 		input.ProviderID,
 		input.ShipperID,
 		*input.ContractValidFrom,
@@ -207,8 +206,8 @@ func (uc *RegisterTariffUseCase) getOrCreateContract(
 
 // tariffExistsInList: Tariffリスト内に同じTariffが存在するかチェック
 func (uc *RegisterTariffUseCase) tariffExistsInList(
-	tariffs []*commercial.Tariff,
-	tariff *commercial.Tariff,
+	tariffs []*pricing.Tariff,
+	tariff *pricing.Tariff,
 ) bool {
 	for _, existing := range tariffs {
 		if existing.Name == tariff.Name &&
@@ -261,9 +260,9 @@ func (uc *RegisterTariffUseCase) buildValidationError(result *parser.ValidationR
 func (uc *RegisterTariffUseCase) convertToTariff(
 	data *parser.ParsedTariffData,
 	contractID uuid.UUID,
-) (*commercial.Tariff, error) {
+) (*pricing.Tariff, error) {
 	// Tariff生成（独立した集約ルートとしてContractIDで契約を参照）
-	tariff, err := commercial.NewTariff(
+	tariff, err := pricing.NewTariff(
 		data.TariffName,
 		contractID,
 		data.EffectiveFrom,
@@ -291,7 +290,7 @@ func (uc *RegisterTariffUseCase) convertToTariff(
 // convertToLineItem: ParsedLineItemをドメインのTariffLineItemに変換
 func (uc *RegisterTariffUseCase) convertToLineItem(
 	parsed parser.ParsedLineItem,
-) (*commercial.TariffLineItem, error) {
+) (*pricing.TariffLineItem, error) {
 	// ServiceScopeの構築
 	serviceScope, err := uc.buildServiceScope(parsed)
 	if err != nil {
@@ -304,7 +303,7 @@ func (uc *RegisterTariffUseCase) convertToLineItem(
 		return nil, fmt.Errorf("failed to build pricing strategy: %w", err)
 	}
 
-	return &commercial.TariffLineItem{
+	return &pricing.TariffLineItem{
 		ID:         uuid.New(),
 		ChargeCode: parsed.ChargeCode,
 		Category:   parsed.Category,
@@ -316,7 +315,7 @@ func (uc *RegisterTariffUseCase) convertToLineItem(
 // buildServiceScope: ServiceScopeを構築
 func (uc *RegisterTariffUseCase) buildServiceScope(
 	parsed parser.ParsedLineItem,
-) (scope.ServiceScope, error) {
+) (pricing.ServiceScope, error) {
 	switch parsed.ServiceScopeType {
 	case "LOCATION":
 		// LocationServiceの構築
@@ -334,7 +333,7 @@ func (uc *RegisterTariffUseCase) buildServiceScope(
 			serviceType = "HANDLING" // デフォルト
 		}
 
-		return scope.LocationService{
+		return pricing.LocationService{
 			LocationID:  route.LocationID(locationID),
 			ServiceType: serviceType,
 		}, nil
@@ -369,7 +368,7 @@ func (uc *RegisterTariffUseCase) buildServiceScope(
 			return nil, fmt.Errorf("invalid transport mode: %w", err)
 		}
 
-		return scope.TransportationService{
+		return pricing.TransportationService{
 			OriginID:      route.LocationID(originID),
 			DestinationID: route.LocationID(destID),
 			Mode:          mode,

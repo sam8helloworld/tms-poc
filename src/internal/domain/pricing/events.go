@@ -1,25 +1,9 @@
-package commercial
+package pricing
 
 import (
 	"github.com/google/uuid"
 	"github.com/sam8helloworld/tms-poc/internal/domain/shared"
 )
-
-// ContractStatusChanged: 契約ステータス変更イベント
-type ContractStatusChanged struct {
-	shared.BaseEvent
-	OldStatus ContractStatus
-	NewStatus ContractStatus
-}
-
-// NewContractStatusChanged: ContractStatusChangedイベントを生成
-func NewContractStatusChanged(contractID uuid.UUID, oldStatus, newStatus ContractStatus) ContractStatusChanged {
-	return ContractStatusChanged{
-		BaseEvent: shared.NewBaseEvent("ContractStatusChanged", contractID, "ServiceContract"),
-		OldStatus: oldStatus,
-		NewStatus: newStatus,
-	}
-}
 
 // TariffRegistered: 料金表登録イベント
 type TariffRegistered struct {

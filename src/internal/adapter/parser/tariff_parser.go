@@ -48,7 +48,7 @@ type TariffParserFactory interface {
 type TariffDataConverter interface {
 	// ConvertToLineItem: ParsedLineItemをドメインのTariffLineItemに変換
 	// LocationやPricingStrategyの解決が必要なため、リポジトリへの依存が生じる
-	// ConvertToLineItem(ctx context.Context, parsed ParsedLineItem) (*commercial.TariffLineItem, error)
+	// ConvertToLineItem(ctx context.Context, parsed ParsedLineItem) (*pricing.TariffLineItem, error)
 }
 
 // ValidationResult: 解析データのバリデーション結果

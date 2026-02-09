@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sam8helloworld/tms-poc/internal/domain/commercial"
+	"github.com/sam8helloworld/tms-poc/internal/domain/contract"
 )
 
 // DeleteBidContractInput: 入札契約削除の入力
@@ -25,12 +25,12 @@ type DeleteBidContractOutput struct {
 // DeleteBidContractUseCase: 入札契約を削除（キャンセル）するユースケース
 // DRAFT状態の契約をCANCELLED状態にする（論理削除）
 type DeleteBidContractUseCase struct {
-	contractRepo commercial.ServiceContractRepository
+	contractRepo contract.ServiceContractRepository
 }
 
 // NewDeleteBidContractUseCase: コンストラクタ
 func NewDeleteBidContractUseCase(
-	contractRepo commercial.ServiceContractRepository,
+	contractRepo contract.ServiceContractRepository,
 ) *DeleteBidContractUseCase {
 	return &DeleteBidContractUseCase{
 		contractRepo: contractRepo,

@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/sam8helloworld/tms-poc/internal/domain/commercial"
+	"github.com/sam8helloworld/tms-poc/internal/domain/contract"
 )
 
 // CreateBidContractUseCase: 入札契約作成ユースケース
@@ -24,14 +24,14 @@ import (
 // - 業者から入札参加の意思表示があった際に、個別にDRAFT契約を作成
 type CreateBidContractUseCase struct {
 	// 本来利用すべきリポジトリ（コメントアウト）
-	// contractRepo commercial.ServiceContractRepository
-	// providerRepo commercial.LogisticsProviderRepository
+	// contractRepo contract.ServiceContractRepository
+	// providerRepo contract.LogisticsProviderRepository
 }
 
 // NewCreateBidContractUseCase: CreateBidContractUseCaseのコンストラクタ
 func NewCreateBidContractUseCase(
-// contractRepo commercial.ServiceContractRepository,
-// providerRepo commercial.LogisticsProviderRepository,
+// contractRepo contract.ServiceContractRepository,
+// providerRepo contract.LogisticsProviderRepository,
 ) *CreateBidContractUseCase {
 	return &CreateBidContractUseCase{
 		// contractRepo: contractRepo,
@@ -70,7 +70,7 @@ func (uc *CreateBidContractUseCase) Execute(
 	// }
 
 	// 4. DRAFT契約を作成
-	contract, err := commercial.NewServiceContract(
+	contract, err := contract.NewServiceContract(
 		input.ProviderID,
 		input.ShipperID,
 		input.ValidFrom,
@@ -137,7 +137,7 @@ func (uc *CreateBidContractUseCase) validateInput(input CreateBidContractInput) 
 // 本来はServiceContractにBidRequestIDフィールドを追加するか、
 // メタデータとして保存する必要がある
 // func (uc *CreateBidContractUseCase) hasSameBidRequest(
-// 	contract *commercial.ServiceContract,
+// 	contract *contract.ServiceContract,
 // 	bidRequestID uuid.UUID,
 // ) bool {
 // 	// 実装案: ServiceContractにBidRequestIDフィールドを追加

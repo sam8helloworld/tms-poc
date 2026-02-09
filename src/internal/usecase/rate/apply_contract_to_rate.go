@@ -6,7 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sam8helloworld/tms-poc/internal/domain/commercial"
+	"github.com/sam8helloworld/tms-poc/internal/domain/contract"
+	"github.com/sam8helloworld/tms-poc/internal/domain/pricing"
 	domainrate "github.com/sam8helloworld/tms-poc/internal/domain/rate"
 )
 
@@ -22,15 +23,15 @@ import (
 type ApplyContractToRateUseCase struct {
 	// 本来利用すべきリポジトリ（コメントアウト）
 	// rateRepo     domainrate.RateRepository
-	// contractRepo commercial.ServiceContractRepository
-	// tariffRepo   commercial.TariffRepository
+	// contractRepo contract.ServiceContractRepository
+	// tariffRepo   pricing.TariffRepository
 }
 
 // NewApplyContractToRateUseCase: ApplyContractToRateUseCaseのコンストラクタ
 func NewApplyContractToRateUseCase(
 // rateRepo domainrate.RateRepository,
-// contractRepo commercial.ServiceContractRepository,
-// tariffRepo commercial.TariffRepository,
+// contractRepo contract.ServiceContractRepository,
+// tariffRepo pricing.TariffRepository,
 ) *ApplyContractToRateUseCase {
 	return &ApplyContractToRateUseCase{
 		// rateRepo:     rateRepo,
@@ -129,7 +130,7 @@ func (uc *ApplyContractToRateUseCase) getRate(
 func (uc *ApplyContractToRateUseCase) getContractedContract(
 	ctx context.Context,
 	contractID uuid.UUID,
-) (*commercial.ServiceContract, error) {
+) (*contract.ServiceContract, error) {
 	// contract, err := uc.contractRepo.FindByID(ctx, contractID)
 	// if err != nil {
 	// 	return nil, NewApplyContractToRateError("CONTRACT_NOT_FOUND", "contract not found").
@@ -138,38 +139,38 @@ func (uc *ApplyContractToRateUseCase) getContractedContract(
 
 	// コメントアウト中のため、ダミー契約を返す
 	_ = ctx
-	contract, _ := commercial.NewServiceContract(
+	dummyContract, _ := contract.NewServiceContract(
 		uuid.New(), // providerID
 		uuid.New(), // shipperID
 		defaultTime(),
 		defaultTime().AddDate(1, 0, 0),
 	)
-	contract.ID = contractID
+	dummyContract.ID = contractID
 
 	// CONTRACTED状態チェック
-	if !contract.IsActive() {
+	if !dummyContract.IsActive() {
 		return nil, NewApplyContractToRateError(
 			"CONTRACT_NOT_CONTRACTED",
 			"only CONTRACTED contracts can be applied to a rate",
 		).
 			WithDetail("contractID", contractID).
-			WithDetail("status", string(contract.Status()))
+			WithDetail("status", string(dummyContract.Status()))
 	}
 
-	return contract, nil
+	return dummyContract, nil
 }
 
 // resolveTargetTariffs: 対象の料金表を特定
 // TariffIDsが空の場合は契約内の全Tariffを対象とする
 // 注: 本来はtariffRepoを使用する（コメントアウト）
 func (uc *ApplyContractToRateUseCase) resolveTargetTariffs(
-	contract *commercial.ServiceContract,
+	contract *contract.ServiceContract,
 	tariffIDs []uuid.UUID,
-) ([]*commercial.Tariff, error) {
+) ([]*pricing.Tariff, error) {
 	// 本来の実装:
 	// allTariffs, err := uc.tariffRepo.FindByContractID(ctx, contract.ID)
 	// コメントアウト中のため空のリストで代替
-	var allTariffs []*commercial.Tariff
+	var allTariffs []*pricing.Tariff
 
 	if len(allTariffs) == 0 && len(tariffIDs) == 0 {
 		return nil, NewApplyContractToRateError(
@@ -201,12 +202,12 @@ func (uc *ApplyContractToRateUseCase) resolveTargetTariffs(
 	// return result, nil
 
 	// コメントアウト中のため空のリストで代替
-	tariffMap := make(map[uuid.UUID]*commercial.Tariff, len(allTariffs))
+	tariffMap := make(map[uuid.UUID]*pricing.Tariff, len(allTariffs))
 	for _, t := range allTariffs {
 		tariffMap[t.ID] = t
 	}
 
-	result := make([]*commercial.Tariff, 0, len(tariffIDs))
+	result := make([]*pricing.Tariff, 0, len(tariffIDs))
 	for _, id := range tariffIDs {
 		tariff, ok := tariffMap[id]
 		if !ok {
@@ -226,8 +227,8 @@ func (uc *ApplyContractToRateUseCase) resolveTargetTariffs(
 // addEntriesToRate: 料金表ごとにRateEntryを作成しレートに追加
 func (uc *ApplyContractToRateUseCase) addEntriesToRate(
 	r *domainrate.Rate,
-	contract *commercial.ServiceContract,
-	tariffs []*commercial.Tariff,
+	contract *contract.ServiceContract,
+	tariffs []*pricing.Tariff,
 	scopeInput RouteScopeInput,
 ) ([]AddedEntryDetail, error) {
 	routeScope := domainrate.RouteScope{

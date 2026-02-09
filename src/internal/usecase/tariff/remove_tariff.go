@@ -4,7 +4,8 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/sam8helloworld/tms-poc/internal/domain/commercial"
+	"github.com/sam8helloworld/tms-poc/internal/domain/contract"
+	"github.com/sam8helloworld/tms-poc/internal/domain/pricing"
 )
 
 // RemoveTariffInput: 料金表削除の入力
@@ -26,14 +27,14 @@ type RemoveTariffOutput struct {
 // RemoveTariffFromContractUseCase: 契約から料金表を削除するユースケース
 // DRAFT状態の契約からのみ料金表を削除できる
 type RemoveTariffFromContractUseCase struct {
-	contractRepo commercial.ServiceContractRepository
-	tariffRepo   commercial.TariffRepository
+	contractRepo contract.ServiceContractRepository
+	tariffRepo   pricing.TariffRepository
 }
 
 // NewRemoveTariffFromContractUseCase: コンストラクタ
 func NewRemoveTariffFromContractUseCase(
-	contractRepo commercial.ServiceContractRepository,
-	tariffRepo commercial.TariffRepository,
+	contractRepo contract.ServiceContractRepository,
+	tariffRepo pricing.TariffRepository,
 ) *RemoveTariffFromContractUseCase {
 	return &RemoveTariffFromContractUseCase{
 		contractRepo: contractRepo,

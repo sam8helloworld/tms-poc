@@ -5,7 +5,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sam8helloworld/tms-poc/internal/domain/commercial"
+	"github.com/sam8helloworld/tms-poc/internal/domain/contract"
+	"github.com/sam8helloworld/tms-poc/internal/domain/pricing"
 	"github.com/sam8helloworld/tms-poc/internal/domain/shared"
 )
 
@@ -31,14 +32,14 @@ type UpdateContractPeriodOutput struct {
 // UpdateContractPeriodUseCase: 契約期間を更新するユースケース
 // DRAFT状態の契約の有効期間（ValidPeriod）を変更する
 type UpdateContractPeriodUseCase struct {
-	contractRepo commercial.ServiceContractRepository
-	tariffRepo   commercial.TariffRepository
+	contractRepo contract.ServiceContractRepository
+	tariffRepo   pricing.TariffRepository
 }
 
 // NewUpdateContractPeriodUseCase: コンストラクタ
 func NewUpdateContractPeriodUseCase(
-	contractRepo commercial.ServiceContractRepository,
-	tariffRepo commercial.TariffRepository,
+	contractRepo contract.ServiceContractRepository,
+	tariffRepo pricing.TariffRepository,
 ) *UpdateContractPeriodUseCase {
 	return &UpdateContractPeriodUseCase{
 		contractRepo: contractRepo,

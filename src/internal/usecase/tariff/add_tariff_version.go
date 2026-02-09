@@ -9,9 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sam8helloworld/tms-poc/internal/adapter/parser"
-	"github.com/sam8helloworld/tms-poc/internal/domain/commercial"
-	"github.com/sam8helloworld/tms-poc/internal/domain/logic/pricing"
-	"github.com/sam8helloworld/tms-poc/internal/domain/logic/scope"
+	"github.com/sam8helloworld/tms-poc/internal/domain/contract"
+	"github.com/sam8helloworld/tms-poc/internal/domain/pricing"
 	"github.com/sam8helloworld/tms-poc/internal/domain/route"
 	"github.com/sam8helloworld/tms-poc/internal/domain/shared"
 )
@@ -46,15 +45,15 @@ type AddTariffVersionOutput struct {
 // AddTariffVersionUseCase: 既存料金表の新バージョンを追加するユースケース
 // 同じ名前のTariffの改定版を受け取った場合、履歴を保持しつつ新バージョンとして追加する
 type AddTariffVersionUseCase struct {
-	contractRepo  commercial.ServiceContractRepository
-	tariffRepo    commercial.TariffRepository
+	contractRepo  contract.ServiceContractRepository
+	tariffRepo    pricing.TariffRepository
 	parserFactory parser.TariffParserFactory
 }
 
 // NewAddTariffVersionUseCase: コンストラクタ
 func NewAddTariffVersionUseCase(
-	contractRepo commercial.ServiceContractRepository,
-	tariffRepo commercial.TariffRepository,
+	contractRepo contract.ServiceContractRepository,
+	tariffRepo pricing.TariffRepository,
 	parserFactory parser.TariffParserFactory,
 ) *AddTariffVersionUseCase {
 	return &AddTariffVersionUseCase{
@@ -121,7 +120,7 @@ func (uc *AddTariffVersionUseCase) Execute(
 	}
 
 	// 5. 新バージョンのTariffを作成
-	newTariff, err := commercial.NewTariffVersion(baseTariff, effectiveFrom, effectiveTo)
+	newTariff, err := pricing.NewTariffVersion(baseTariff, effectiveFrom, effectiveTo)
 	if err != nil {
 		return nil, NewRegisterTariffError("TARIFF_CREATE_ERROR", "failed to create tariff version").
 			WithCause(err)
@@ -141,7 +140,7 @@ func (uc *AddTariffVersionUseCase) Execute(
 				WithCause(err)
 		}
 
-		lineItem := commercial.TariffLineItem{
+		lineItem := pricing.TariffLineItem{
 			ChargeCode: parsedItem.ChargeCode,
 			Category:   parsedItem.Category,
 			Scope:      scope,
@@ -187,7 +186,7 @@ func (uc *AddTariffVersionUseCase) Execute(
 // （RegisterTariffUseCaseと同じロジック）
 func (uc *AddTariffVersionUseCase) buildServiceScope(
 	parsed parser.ParsedLineItem,
-) (scope.ServiceScope, error) {
+) (pricing.ServiceScope, error) {
 	switch parsed.ServiceScopeType {
 	case "LOCATION":
 		locationIDStr, ok := parsed.ServiceScopeAttrs["LocationID"]
@@ -204,7 +203,7 @@ func (uc *AddTariffVersionUseCase) buildServiceScope(
 			serviceType = "HANDLING"
 		}
 
-		return scope.LocationService{
+		return pricing.LocationService{
 			LocationID:  route.LocationID(locationID),
 			ServiceType: serviceType,
 		}, nil
@@ -237,7 +236,7 @@ func (uc *AddTariffVersionUseCase) buildServiceScope(
 			return nil, fmt.Errorf("invalid transport mode: %w", err)
 		}
 
-		return scope.TransportationService{
+		return pricing.TransportationService{
 			OriginID:      route.LocationID(originID),
 			DestinationID: route.LocationID(destID),
 			Mode:          mode,

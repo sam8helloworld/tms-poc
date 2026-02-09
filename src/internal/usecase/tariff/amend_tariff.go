@@ -7,9 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/sam8helloworld/tms-poc/internal/adapter/parser"
-	"github.com/sam8helloworld/tms-poc/internal/domain/commercial"
-	"github.com/sam8helloworld/tms-poc/internal/domain/logic/pricing"
-	"github.com/sam8helloworld/tms-poc/internal/domain/logic/scope"
+	"github.com/sam8helloworld/tms-poc/internal/domain/contract"
+	"github.com/sam8helloworld/tms-poc/internal/domain/pricing"
 	"github.com/sam8helloworld/tms-poc/internal/domain/route"
 	"github.com/sam8helloworld/tms-poc/internal/domain/shared"
 )
@@ -28,15 +27,15 @@ import (
 // 8. 永続化
 // 9. 出力DTOを返却
 type AmendContractTariffUseCase struct {
-	contractRepo  commercial.ServiceContractRepository
-	tariffRepo    commercial.TariffRepository
+	contractRepo  contract.ServiceContractRepository
+	tariffRepo    pricing.TariffRepository
 	parserFactory parser.TariffParserFactory
 }
 
 // NewAmendContractTariffUseCase: コンストラクタ
 func NewAmendContractTariffUseCase(
-	contractRepo commercial.ServiceContractRepository,
-	tariffRepo commercial.TariffRepository,
+	contractRepo contract.ServiceContractRepository,
+	tariffRepo pricing.TariffRepository,
 	parserFactory parser.TariffParserFactory,
 ) *AmendContractTariffUseCase {
 	return &AmendContractTariffUseCase{
@@ -108,7 +107,7 @@ func (uc *AmendContractTariffUseCase) Execute(
 	}
 
 	// 6. 新バージョンのTariffを作成
-	newTariff, err := commercial.NewTariffVersion(baseTariff, effectiveFrom, effectiveTo)
+	newTariff, err := pricing.NewTariffVersion(baseTariff, effectiveFrom, effectiveTo)
 	if err != nil {
 		return nil, NewAmendTariffError("TARIFF_CREATE_ERROR", "failed to create tariff version").
 			WithCause(err)
@@ -128,7 +127,7 @@ func (uc *AmendContractTariffUseCase) Execute(
 				WithCause(err)
 		}
 
-		lineItem := commercial.TariffLineItem{
+		lineItem := pricing.TariffLineItem{
 			ChargeCode: parsedItem.ChargeCode,
 			Category:   parsedItem.Category,
 			Scope:      serviceScope,
@@ -201,7 +200,7 @@ func (uc *AmendContractTariffUseCase) validateInput(input AmendContractTariffInp
 // buildServiceScope: ParsedLineItemからServiceScopeを構築
 func (uc *AmendContractTariffUseCase) buildServiceScope(
 	parsed parser.ParsedLineItem,
-) (scope.ServiceScope, error) {
+) (pricing.ServiceScope, error) {
 	switch parsed.ServiceScopeType {
 	case "LOCATION":
 		locationIDStr, ok := parsed.ServiceScopeAttrs["LocationID"]
@@ -218,7 +217,7 @@ func (uc *AmendContractTariffUseCase) buildServiceScope(
 			serviceType = "HANDLING"
 		}
 
-		return scope.LocationService{
+		return pricing.LocationService{
 			LocationID:  route.LocationID(locationID),
 			ServiceType: serviceType,
 		}, nil
@@ -251,7 +250,7 @@ func (uc *AmendContractTariffUseCase) buildServiceScope(
 			return nil, fmt.Errorf("invalid transport mode: %w", err)
 		}
 
-		return scope.TransportationService{
+		return pricing.TransportationService{
 			OriginID:      route.LocationID(originID),
 			DestinationID: route.LocationID(destID),
 			Mode:          mode,

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/sam8helloworld/tms-poc/internal/domain/commercial"
+	"github.com/sam8helloworld/tms-poc/internal/domain/contract"
 	domainrate "github.com/sam8helloworld/tms-poc/internal/domain/rate"
 )
 
@@ -21,15 +21,15 @@ import (
 type UpdateRateEntryTariffUseCase struct {
 	// 本来利用すべきリポジトリ（コメントアウト）
 	// rateRepo     domainrate.RateRepository
-	// contractRepo commercial.ServiceContractRepository
-	// tariffRepo   commercial.TariffRepository
+	// contractRepo contract.ServiceContractRepository
+	// tariffRepo   pricing.TariffRepository
 }
 
 // NewUpdateRateEntryTariffUseCase: コンストラクタ
 func NewUpdateRateEntryTariffUseCase(
 // rateRepo domainrate.RateRepository,
-// contractRepo commercial.ServiceContractRepository,
-// tariffRepo commercial.TariffRepository,
+// contractRepo contract.ServiceContractRepository,
+// tariffRepo pricing.TariffRepository,
 ) *UpdateRateEntryTariffUseCase {
 	return &UpdateRateEntryTariffUseCase{
 		// rateRepo:     rateRepo,
@@ -155,7 +155,7 @@ func (uc *UpdateRateEntryTariffUseCase) getRate(
 func (uc *UpdateRateEntryTariffUseCase) getContract(
 	ctx context.Context,
 	contractID uuid.UUID,
-) (*commercial.ServiceContract, error) {
+) (*contract.ServiceContract, error) {
 	// contract, err := uc.contractRepo.FindByID(ctx, contractID)
 	// if err != nil {
 	// 	return nil, NewUpdateRateEntryTariffError("CONTRACT_NOT_FOUND", "contract not found").
@@ -165,20 +165,20 @@ func (uc *UpdateRateEntryTariffUseCase) getContract(
 
 	// コメントアウト中のため、ダミー契約を返す
 	_ = ctx
-	contract, _ := commercial.NewServiceContract(
+	dummyContract, _ := contract.NewServiceContract(
 		uuid.New(),
 		uuid.New(),
 		defaultTime(),
 		defaultTime().AddDate(1, 0, 0),
 	)
-	contract.ID = contractID
-	return contract, nil
+	dummyContract.ID = contractID
+	return dummyContract, nil
 }
 
 // validateTariffExistsInContract: 新TariffIDが契約内に存在することを確認
 // 注: 本来はtariffRepoを使用する（コメントアウト）
 func (uc *UpdateRateEntryTariffUseCase) validateTariffExistsInContract(
-	contract *commercial.ServiceContract,
+	contract *contract.ServiceContract,
 	tariffID uuid.UUID,
 ) error {
 	// 本来の実装:

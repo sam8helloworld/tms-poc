@@ -1,6 +1,4 @@
-package commercial
-
-import "github.com/google/uuid"
+package contract
 
 type ProviderType string
 
@@ -27,11 +25,4 @@ func (pt ProviderType) IsAssetBased() bool {
 	default:
 		return false
 	}
-}
-
-// LogisticsProvider: 物流企業
-type LogisticsProvider struct {
-	ID   uuid.UUID
-	Name string
-	Type ProviderType // CARRIER, FORWARDER
 }

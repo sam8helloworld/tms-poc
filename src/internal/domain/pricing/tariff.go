@@ -1,12 +1,10 @@
-package commercial
+package pricing
 
 import (
 	"strconv"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sam8helloworld/tms-poc/internal/domain/logic/pricing"
-	"github.com/sam8helloworld/tms-poc/internal/domain/logic/scope"
 	"github.com/sam8helloworld/tms-poc/internal/domain/shared"
 )
 
@@ -169,17 +167,4 @@ func (t *Tariff) GetVersionInfo() string {
 // IsEffectiveAt: 指定日時にこのTariffが有効かどうか判定
 func (t *Tariff) IsEffectiveAt(date time.Time) bool {
 	return !date.Before(t.EffectiveDate.From) && !date.After(t.EffectiveDate.To)
-}
-
-// TariffLineItem: 1行の料金定義 (The Rate)
-type TariffLineItem struct {
-	ID         uuid.UUID
-	ChargeCode string // "OFT", "THC"
-	Category   string // FREIGHT, LOCAL
-
-	// Scope: どこに適用されるか (ドメイン用語で定義)
-	Scope scope.ServiceScope
-
-	// Logic: いくらか (Strategy Pattern)
-	Logic pricing.PricingStrategy
 }

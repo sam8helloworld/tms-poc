@@ -6,6 +6,39 @@
 商流（Shipment）と実行（TrackingUnit）を分離し、各時点での費用算出とGap分析を可能にします。
 ルート管理は「計画（StandardRoute）と実績（TrackingSegment）の分離」パターンを採用しています。
 
+### パッケージ構造マッピング
+
+各集約は境界づけられたコンテキスト（Bounded Context）に従ってパッケージ化されています：
+
+- **Shared Layer (共通値オブジェクト層)** → `domain/shared/`
+- **Route Aggregate (ルーティング集約)** → `domain/route/`
+- **Commercial Aggregate (商取引集約)** → `domain/contract/`
+- **Tariff Aggregate (料金表集約)** → `domain/pricing/`
+- **Rate Aggregate (社内レート集約)** → `domain/rate/`
+- **Shipment Aggregate (出荷案件集約)** → `domain/shipment/`
+- **Tracking Aggregate (追跡集約)** → `domain/tracking/`
+
+パッケージ間の依存関係:
+```
+shared (foundation - no dependencies)
+  ↑
+  ├─ route (physical network)
+  ├─ tracking (execution tracking)
+  ├─ contract (contracts & providers)
+  └─ pricing (tariffs & calculation logic)
+       ↑
+       ├─ rate (shipper's internal rates)
+       └─ shipment (shipment execution)
+```
+
+**依存ルール**:
+1. `shared`は他のドメインパッケージに依存しない
+2. `contract`は`shared`のみに依存
+3. `pricing`は`shared`, `route`に依存
+4. `rate`は`shared`, `route`に依存
+5. `shipment`は`shared`, `route`, `tracking`, `pricing`に依存
+6. 循環依存は禁止
+
 ```mermaid
 classDiagram
     %% ============================================
@@ -49,7 +82,7 @@ classDiagram
     }
 
     %% ============================================
-    %% Route Aggregate (ルーティング集約)
+    %% Route Aggregate (ルーティング集約) - domain/route
     %% ============================================
     namespace ルーティング集約 {
         class Location["拠点<br/>(Location)"] {
@@ -120,7 +153,7 @@ classDiagram
     }
 
     %% ============================================
-    %% Commercial Aggregate (商取引集約)
+    %% Commercial Aggregate (商取引集約) - domain/contract
     %% ============================================
     namespace 商取引集約 {
         class LogisticsProvider["物流企業<br/>(LogisticsProvider)"] {
@@ -162,7 +195,7 @@ classDiagram
     }
 
     %% ============================================
-    %% Tariff Aggregate (料金表集約)
+    %% Tariff Aggregate (料金表集約) - domain/pricing
     %% ============================================
     namespace 料金表集約 {
         class Tariff["料金表<br/>(Tariff)"] {
@@ -187,7 +220,7 @@ classDiagram
     }
 
     %% ============================================
-    %% Rate Aggregate (社内レート集約)
+    %% Rate Aggregate (社内レート集約) - domain/rate
     %% ============================================
     namespace 社内レート集約 {
         class Rate["社内レート<br/>(Rate)"] {
@@ -225,7 +258,7 @@ classDiagram
     }
 
     %% ============================================
-    %% Shipment Aggregate (出荷案件集約)
+    %% Shipment Aggregate (出荷案件集約) - domain/shipment
     %% ============================================
     namespace 出荷案件集約 {
         class Shipment["出荷案件<br/>(Shipment)"] {
@@ -278,7 +311,7 @@ classDiagram
     }
 
     %% ============================================
-    %% Tracking Aggregate (追跡集約)
+    %% Tracking Aggregate (追跡集約) - domain/tracking
     %% ============================================
     namespace 追跡集約 {
         class TrackingUnit["追跡単位<br/>(TrackingUnit)"] {

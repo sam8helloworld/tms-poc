@@ -1,4 +1,4 @@
-package calcparam
+package pricing
 
 import (
 	"github.com/sam8helloworld/tms-poc/internal/domain/route"
