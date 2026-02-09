@@ -156,14 +156,19 @@ Domain model source code is located in `src/internal/`.
 
 ### Domain Model Diagram
 
-The current domain model is documented in Mermaid format at `spec/domain-model.md`.
+The current domain model is documented in Mermaid format at `spec/domain-model.md`. The file contains two levels of diagrams:
+
+1. **Context Map** (Abstract): Shows Bounded Contexts, their aggregates, and context mapping patterns (OHS, ACL, Shared Kernel, etc.)
+2. **DDD Conceptual Model** (Detailed): Shows all entities, value objects, aggregates, and their relationships
 
 **IMPORTANT**: Whenever you modify the domain model implementation:
-1. Update the corresponding Go source files in `src/internal/domain/`
-2. Update the Mermaid diagram in `spec/domain-model.md` to reflect the changes
-3. Ensure the diagram accurately represents all entities, value objects, aggregates, and their relationships
+1. Update the corresponding Go source files in `src/internal/`
+2. Update **BOTH diagrams** in `spec/domain-model.md`:
+   - **Context Map**: Update when adding/removing Bounded Contexts, changing aggregates, or modifying relationships between contexts
+   - **Detailed Class Diagram**: Update when modifying entities, value objects, attributes, or relationships
+3. Ensure both diagrams accurately represent the current architecture and design
 
-The diagram should be kept in sync with the codebase to serve as living documentation.
+The diagrams should be kept in sync with the codebase to serve as living documentation.
 
 #### Domain Model Diagram Style Guide
 

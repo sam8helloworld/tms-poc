@@ -1,5 +1,110 @@
 # ドメインモデル図
 
+## Context Map（境界づけられたコンテキストと集約の関係）
+
+このセクションでは、システム全体の境界づけられたコンテキスト（Bounded Context）の関係を抽象化して表現します。
+
+```mermaid
+graph TD
+    %% Shared Kernel
+    subgraph "Shared Kernel (共通カーネル)"
+        Shared["共通値オブジェクト<br/>(Money, DateRange, TransportMode, LocationType)"]
+    end
+
+    %% Master Data Context
+    subgraph "Master Data (マスタデータ)"
+        Network["Network Context<br/>(Route/Location)<br/>────────<br/>Aggregates:<br/>• StandardRoute<br/>• PhysicalRoute<br/>• Location/Lane"]
+    end
+
+    %% Upstream (Buying)
+    subgraph "Upstream - Buying (上流：購買)"
+        Sourcing["Sourcing Context<br/>(Contract/Tariff)<br/>────────<br/>Aggregates:<br/>• ServiceContract<br/>• Vendor<br/>• Tariff"]
+    end
+
+    %% Midstream (Standardizing)
+    subgraph "Midstream - Standardizing (中流：標準化)"
+        RateMgmt["Rate Management Context<br/>(Internal Rate)<br/>────────<br/>Aggregates:<br/>• Rate<br/>• LogisticsResource"]
+    end
+
+    %% Downstream (Executing)
+    subgraph "Downstream - Executing (下流：実行)"
+        Shipment["Shipment Context<br/>(Shipment/Plan)<br/>────────<br/>Aggregates:<br/>• Shipment"]
+        Tracking["Tracking Context<br/>(TrackingUnit)<br/>────────<br/>Aggregates:<br/>• TrackingUnit<br/>• ServiceOperator"]
+    end
+
+    %% Shared Kernel relationships
+    Shared -.->|Foundation| Network
+    Shared -.->|Foundation| Sourcing
+    Shared -.->|Foundation| RateMgmt
+    Shared -.->|Foundation| Shipment
+    Shared -.->|Foundation| Tracking
+
+    %% Master Data relationships (OHS: Open Host Service)
+    Network -->|Shared Kernel<br/>+ OHS| Sourcing
+    Network -->|Shared Kernel<br/>+ OHS| RateMgmt
+    Network -->|Shared Kernel<br/>+ OHS| Shipment
+    Network -->|Shared Kernel<br/>+ OHS| Tracking
+
+    %% Upstream to Midstream (ACL: Anti-Corruption Layer)
+    Sourcing -->|ACL<br/>Tariff → LogisticsResource| RateMgmt
+
+    %% Midstream to Downstream (OHS: Open Host Service)
+    RateMgmt -->|OHS<br/>Internal Rate| Shipment
+
+    %% Downstream internal (ID Reference + Domain Events)
+    Shipment -->|ID Reference<br/>trackingUnitIDs| Tracking
+    Tracking -.->|Domain Events<br/>TrackingStatusChanged| Shipment
+
+    %% Styling
+    style Network fill:#e1f5ff,stroke:#01579b,stroke-width:2px
+    style Sourcing fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style RateMgmt fill:#f3e5f5,stroke:#4a148c,stroke-width:3px
+    style Shipment fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    style Tracking fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style Shared fill:#f5f5f5,stroke:#424242,stroke-width:2px,stroke-dasharray: 5 5
+```
+
+### コンテキストマッピングパターンの説明
+
+#### Shared Kernel (共通カーネル)
+- **Money, DateRange, TransportMode, LocationType**: 全コンテキストで共有される基本的な値オブジェクト
+- すべてのコンテキストが同じ定義を使用し、相互運用性を保証
+
+#### OHS (Open Host Service: 公開ホストサービス)
+- **Network Context**: 全社的な共通言語（ロケーション、レーン、標準ルート）を提供
+- 他のコンテキストは Network が公開するサービスを自由に利用可能
+- マスタデータとしての役割：安定したインターフェースを提供
+
+#### ACL (Anti-Corruption Layer: 腐敗防止層)
+- **Sourcing → Rate Management**: 業者の生データ（Tariff）を社内標準（LogisticsResource）に変換
+- Rate Management は Sourcing の内部モデルに依存せず、独自のモデルを維持
+- データ変換ロジックにより、Sourcing の変更から Rate Management を保護
+
+#### ID Reference (ID参照)
+- **Shipment → Tracking**: 集約境界を超える参照はIDのみ
+- 集約の独立性を保ち、疎結合を実現
+- TrackingUnit は Shipment への参照を持たない（一方向参照）
+
+#### Domain Events (ドメインイベント)
+- **Tracking → Shipment**: 実績ステータス変化を非同期通知
+- TrackingStatusChanged イベントを通じて Shipment のステータスを更新（Derived Status）
+- 逆方向の直接参照を避け、結合度を低く保つ
+
+### ビジネスフローとコンテキスト
+
+1. **上流（Upstream - Buying）**: Sourcing Context
+   - 物流企業との契約交渉、入札プロセス、料金表の受領
+
+2. **中流（Midstream - Standardizing）**: Rate Management Context
+   - 複数業者の料金表を組み合わせた社内標準レート作成
+   - 社内向けの統一された料金体系を整備
+
+3. **下流（Downstream - Executing）**: Shipment Context + Tracking Context
+   - 出荷案件の計画・実行（Shipment）
+   - 実績追跡と記録（Tracking）
+
+---
+
 ## DDD 概念モデル
 
 このドメインモデルは、国際物流SCMプラットフォームのコア設計を表現しています。
