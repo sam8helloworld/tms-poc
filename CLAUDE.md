@@ -136,16 +136,23 @@ The `calculation_type` field in `rate_items` can be: FIXED, DISTANCE_TIER, WEIGH
 
 ### Go Implementation
 
-The domain model follows Domain-Driven Design (DDD) principles with a layered architecture:
+The domain model follows Domain-Driven Design (DDD) principles organized by Bounded Contexts:
 
-- **Shared Layer**: Common value objects (Money, DateRange, TransportMode, LocationType)
-- **Route Aggregate**: Physical network modeling (Location, Lane, PhysicalRoute, RouteSegment)
-- **Commercial Aggregate**: Business transactions (LogisticsProvider, ServiceContract, Tariff, TariffLineItem)
-- **Context Layer**: Calculation context (ShipmentContext)
-- **Logic Layer**: Business rules (ServiceScope, PricingStrategy interfaces and implementations)
-- **Service Layer**: Domain services (FreightEstimator)
+- **Shared Kernel** (`src/internal/shared/`): Common value objects (Money, DateRange, TransportMode, LocationType)
+- **Network BC** (`src/internal/network/domain/route/`): Physical network modeling (Location, Lane, PhysicalRoute, RouteSegment, StandardRoute)
+- **Sourcing BC** (`src/internal/sourcing/`): Contracts and pricing
+  - `domain/contract/`: ServiceContract, Vendor (LogisticsProvider)
+  - `domain/pricing/`: Tariff, TariffLineItem, ServiceScope, PricingStrategy, ShipmentContext
+  - `application/bid/`: Bid use cases (CreateBidContract, DeleteContract, UpdateContractPeriod)
+  - `application/tariff/`: Tariff use cases (RegisterTariff, AmendTariff, AddTariffVersion, RemoveTariff)
+  - `infrastructure/parser/`: TariffParser
+- **Rate Management BC** (`src/internal/rate/`): Shipper's internal rates
+  - `domain/rate/`: Rate, RateEntry, LogisticsResource
+  - `application/rate/`: Rate use cases (ApplyContractToRate, UpdateRateEntryTariff)
+- **Shipment BC** (`src/internal/shipment/domain/shipment/`): Shipment execution (Shipment, ShipmentPlan, ShipmentCost)
+- **Tracking BC** (`src/internal/tracking/domain/tracking/`): Execution tracking (TrackingUnit, TrackingSegment, ServiceOperator)
 
-Domain model source code is located in `src/internal/domain/`.
+Domain model source code is located in `src/internal/`.
 
 ### Domain Model Diagram
 

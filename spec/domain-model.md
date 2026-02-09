@@ -10,33 +10,37 @@
 
 各集約は境界づけられたコンテキスト（Bounded Context）に従ってパッケージ化されています：
 
-- **Shared Layer (共通値オブジェクト層)** → `domain/shared/`
-- **Route Aggregate (ルーティング集約)** → `domain/route/`
-- **Commercial Aggregate (商取引集約)** → `domain/contract/`
-- **Tariff Aggregate (料金表集約)** → `domain/pricing/`
-- **Rate Aggregate (社内レート集約)** → `domain/rate/`
-- **Shipment Aggregate (出荷案件集約)** → `domain/shipment/`
-- **Tracking Aggregate (追跡集約)** → `domain/tracking/`
+- **Shared Kernel (共通値オブジェクト層)** → `shared/`
+- **Network BC (ルーティング集約)** → `network/domain/route/`
+- **Sourcing BC (商取引集約)** → `sourcing/domain/contract/`
+- **Sourcing BC (料金表集約)** → `sourcing/domain/pricing/`
+- **Sourcing BC (入札アプリケーション)** → `sourcing/application/bid/`
+- **Sourcing BC (料金表アプリケーション)** → `sourcing/application/tariff/`
+- **Sourcing BC (インフラ)** → `sourcing/infrastructure/parser/`
+- **Rate Management BC (社内レート集約)** → `rate/domain/rate/`
+- **Rate Management BC (レートアプリケーション)** → `rate/application/rate/`
+- **Shipment BC (出荷案件集約)** → `shipment/domain/shipment/`
+- **Tracking BC (追跡集約)** → `tracking/domain/tracking/`
 
 パッケージ間の依存関係:
 ```
 shared (foundation - no dependencies)
   ↑
-  ├─ route (physical network)
-  ├─ tracking (execution tracking)
-  ├─ contract (contracts & providers)
-  └─ pricing (tariffs & calculation logic)
+  ├─ network/domain/route (physical network)
+  ├─ tracking/domain/tracking (execution tracking)
+  ├─ sourcing/domain/contract (contracts & providers)
+  └─ sourcing/domain/pricing (tariffs & calculation logic)
        ↑
-       ├─ rate (shipper's internal rates)
-       └─ shipment (shipment execution)
+       ├─ rate/domain/rate (shipper's internal rates)
+       └─ shipment/domain/shipment (shipment execution)
 ```
 
 **依存ルール**:
 1. `shared`は他のドメインパッケージに依存しない
-2. `contract`は`shared`のみに依存
-3. `pricing`は`shared`, `route`に依存
-4. `rate`は`shared`, `route`に依存
-5. `shipment`は`shared`, `route`, `tracking`, `pricing`に依存
+2. `sourcing/domain/contract`は`shared`のみに依存
+3. `sourcing/domain/pricing`は`shared`, `network/domain/route`に依存
+4. `rate/domain/rate`は`shared`, `network/domain/route`に依存
+5. `shipment/domain/shipment`は`shared`, `network/domain/route`, `tracking/domain/tracking`, `sourcing/domain/pricing`に依存
 6. 循環依存は禁止
 
 ```mermaid
@@ -82,7 +86,7 @@ classDiagram
     }
 
     %% ============================================
-    %% Route Aggregate (ルーティング集約) - domain/route
+    %% Route Aggregate (ルーティング集約) - network/domain/route
     %% ============================================
     namespace ルーティング集約 {
         class Location["拠点<br/>(Location)"] {
@@ -153,7 +157,7 @@ classDiagram
     }
 
     %% ============================================
-    %% Commercial Aggregate (商取引集約) - domain/contract
+    %% Commercial Aggregate (商取引集約) - sourcing/domain/contract
     %% ============================================
     namespace 商取引集約 {
         class Vendor["ベンダー<br/>(Vendor)"] {
@@ -237,7 +241,7 @@ classDiagram
     }
 
     %% ============================================
-    %% Tariff Aggregate (料金表集約) - domain/pricing
+    %% Tariff Aggregate (料金表集約) - sourcing/domain/pricing
     %% ============================================
     namespace 料金表集約 {
         class Tariff["料金表<br/>(Tariff)"] {
@@ -262,7 +266,7 @@ classDiagram
     }
 
     %% ============================================
-    %% Rate Aggregate (社内レート集約) - domain/rate
+    %% Rate Aggregate (社内レート集約) - rate/domain/rate
     %% ============================================
     namespace 社内レート集約 {
         class Rate["社内レート<br/>(Rate)"] {
@@ -332,7 +336,7 @@ classDiagram
     }
 
     %% ============================================
-    %% Shipment Aggregate (出荷案件集約) - domain/shipment
+    %% Shipment Aggregate (出荷案件集約) - shipment/domain/shipment
     %% ============================================
     namespace 出荷案件集約 {
         class Shipment["出荷案件<br/>(Shipment)"] {
@@ -385,7 +389,7 @@ classDiagram
     }
 
     %% ============================================
-    %% Tracking Aggregate (追跡集約) - domain/tracking
+    %% Tracking Aggregate (追跡集約) - tracking/domain/tracking
     %% ============================================
     namespace 追跡集約 {
         class TrackingUnit["追跡単位<br/>(TrackingUnit)"] {
