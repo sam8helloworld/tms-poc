@@ -672,7 +672,7 @@ classDiagram
 
     note for Vendor "・契約コンテキストにおける物流企業（契約の主体）<br/>・信用格付、支払条件など商取引関心事を管理<br/>・LogisticsProviderは後方互換性のためのエイリアス<br/>・ProviderIDで他コンテキストと紐づく（コンテキストマッピング）"
 
-    note for LogisticsResource "・レート・計画コンテキストにおける物流企業（能力とコストの提供者）<br/>・"誰が運べるか"ではなく"何を運べるか"に焦点<br/>・ProviderIDで契約コンテキストのVendorと紐づく<br/>・能力（Capability）とレート特性を持つ"
+    note for LogisticsResource "・レート・計画コンテキストにおける物流企業（能力とコストの提供者）<br/>・「誰が運べるか」ではなく「何を運べるか」に焦点<br/>・ProviderIDで契約コンテキストのVendorと紐づく<br/>・能力（Capability）とレート特性を持つ"
 
     note for ServiceOperator "・実行コンテキストにおける物流企業（業務の遂行者）<br/>・実務担当者、連絡先、実行役割に焦点<br/>・ProviderIDで契約コンテキストのVendorと紐づく<br/>・実行品質メトリクスとシステム連携情報を持つ"
 ```
