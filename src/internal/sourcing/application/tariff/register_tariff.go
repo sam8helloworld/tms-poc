@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sam8helloworld/tms-poc/internal/sourcing/infrastructure/parser"
-	"github.com/sam8helloworld/tms-poc/internal/sourcing/domain/contract"
-	"github.com/sam8helloworld/tms-poc/internal/sourcing/domain/pricing"
 	"github.com/sam8helloworld/tms-poc/internal/network/domain/route"
 	"github.com/sam8helloworld/tms-poc/internal/shared"
+	"github.com/sam8helloworld/tms-poc/internal/sourcing/domain/contract"
+	"github.com/sam8helloworld/tms-poc/internal/sourcing/domain/pricing"
+	"github.com/shopspring/decimal"
 )
 
 // RegisterTariffUseCase: 料金表登録ユースケース
@@ -24,26 +24,26 @@ import (
 // 3. 契約にTariffを追加または更新
 // 4. 契約を永続化
 type RegisterTariffUseCase struct {
-	parserFactory parser.TariffParserFactory
-	validator     parser.TariffDataValidator
+	parserFactory pricing.TariffParserFactory
+	validator     pricing.TariffDataValidator
 
 	// 本来利用すべきリポジトリ（コメントアウト）
 	// contractRepo contract.ServiceContractRepository
-	// tariffRepo   pricing.TariffRepository
+	tariffRepo pricing.TariffRepository
 }
 
 // NewRegisterTariffUseCase: RegisterTariffUseCaseのコンストラクタ
 func NewRegisterTariffUseCase(
-	parserFactory parser.TariffParserFactory,
-	validator parser.TariffDataValidator,
+	parserFactory pricing.TariffParserFactory,
+	validator pricing.TariffDataValidator,
+	tariffRepo pricing.TariffRepository,
 	// contractRepo contract.ServiceContractRepository,
-	// tariffRepo pricing.TariffRepository,
 ) *RegisterTariffUseCase {
 	return &RegisterTariffUseCase{
 		parserFactory: parserFactory,
 		validator:     validator,
+		tariffRepo:    tariffRepo,
 		// contractRepo:  contractRepo,
-		// tariffRepo:    tariffRepo,
 	}
 }
 
@@ -89,10 +89,10 @@ func (uc *RegisterTariffUseCase) Execute(
 	isUpdated := false
 
 	// 7. Tariffを永続化（コメントアウト）
-	// if err := uc.tariffRepo.Save(ctx, tariff); err != nil {
-	// 	return nil, NewRegisterTariffError("SAVE_ERROR", err.Error()).
-	// 		WithDetail("tariffID", tariff.ID)
-	// }
+	if err := uc.tariffRepo.Save(ctx, tariff); err != nil {
+		return nil, NewRegisterTariffError("SAVE_ERROR", err.Error()).
+			WithDetail("tariffID", tariff.ID)
+	}
 
 	// 8. 契約を永続化（コメントアウト）
 	// if err := uc.contractRepo.Save(ctx, contract); err != nil {
@@ -220,7 +220,7 @@ func (uc *RegisterTariffUseCase) tariffExistsInList(
 }
 
 // parseFile: ファイルを解析
-func (uc *RegisterTariffUseCase) parseFile(input RegisterTariffInput) (*parser.ParsedTariffData, error) {
+func (uc *RegisterTariffUseCase) parseFile(input RegisterTariffInput) (*pricing.ParsedTariffData, error) {
 	// パーサーを取得
 	p, err := uc.parserFactory.GetParser(input.FileFormat)
 	if err != nil {
@@ -248,7 +248,7 @@ func (uc *RegisterTariffUseCase) parseFile(input RegisterTariffInput) (*parser.P
 }
 
 // buildValidationError: バリデーションエラーを構築
-func (uc *RegisterTariffUseCase) buildValidationError(result *parser.ValidationResult) *RegisterTariffError {
+func (uc *RegisterTariffUseCase) buildValidationError(result *pricing.ValidationResult) *RegisterTariffError {
 	err := NewRegisterTariffError("VALIDATION_ERROR", "parsed data validation failed")
 	for _, ve := range result.Errors {
 		err.WithDetail(ve.Field, ve.Message)
@@ -258,7 +258,7 @@ func (uc *RegisterTariffUseCase) buildValidationError(result *parser.ValidationR
 
 // convertToTariff: 解析データをドメインモデルに変換
 func (uc *RegisterTariffUseCase) convertToTariff(
-	data *parser.ParsedTariffData,
+	data *pricing.ParsedTariffData,
 	contractID uuid.UUID,
 ) (*pricing.Tariff, error) {
 	// Tariff生成（独立した集約ルートとしてContractIDで契約を参照）
@@ -289,7 +289,7 @@ func (uc *RegisterTariffUseCase) convertToTariff(
 
 // convertToLineItem: ParsedLineItemをドメインのTariffLineItemに変換
 func (uc *RegisterTariffUseCase) convertToLineItem(
-	parsed parser.ParsedLineItem,
+	parsed pricing.ParsedLineItem,
 ) (*pricing.TariffLineItem, error) {
 	// ServiceScopeの構築
 	serviceScope, err := uc.buildServiceScope(parsed)
@@ -314,10 +314,10 @@ func (uc *RegisterTariffUseCase) convertToLineItem(
 
 // buildServiceScope: ServiceScopeを構築
 func (uc *RegisterTariffUseCase) buildServiceScope(
-	parsed parser.ParsedLineItem,
+	parsed pricing.ParsedLineItem,
 ) (pricing.ServiceScope, error) {
 	switch parsed.ServiceScopeType {
-	case "LOCATION":
+	case pricing.ScopeLocation:
 		// LocationServiceの構築
 		locationIDStr, ok := parsed.ServiceScopeAttrs["LocationID"]
 		if !ok {
@@ -338,7 +338,7 @@ func (uc *RegisterTariffUseCase) buildServiceScope(
 			ServiceType: serviceType,
 		}, nil
 
-	case "TRANSPORTATION":
+	case pricing.ScopeTransportation:
 		// TransportationServiceの構築
 		originIDStr, ok := parsed.ServiceScopeAttrs["OriginID"]
 		if !ok {
@@ -381,59 +381,132 @@ func (uc *RegisterTariffUseCase) buildServiceScope(
 
 // buildPricingStrategy: PricingStrategyを構築
 func (uc *RegisterTariffUseCase) buildPricingStrategy(
-	parsed parser.ParsedLineItem,
+	parsed pricing.ParsedLineItem,
 ) (pricing.PricingStrategy, error) {
 	switch parsed.PricingType {
-	case "FLAT":
-		// FlatStrategyの構築
-		amountRaw, ok := parsed.PricingAttrs["Amount"]
-		if !ok {
-			return nil, errors.New("Amount is required for FLAT pricing")
-		}
-		// 型アサーション（簡略化）
-		// 本来はdecimal.Decimalへの変換が必要
-		_ = amountRaw
+	case pricing.PricingFlat:
+		return uc.buildFlatStrategy(parsed.PricingAttrs)
 
-		currencyRaw, ok := parsed.PricingAttrs["Currency"]
-		if !ok {
-			return nil, errors.New("Currency is required for FLAT pricing")
-		}
-		currency, ok := currencyRaw.(string)
-		if !ok {
-			return nil, errors.New("Currency must be a string")
-		}
+	case pricing.PricingCelExpression:
+		return uc.buildCelExpressionStrategy(parsed.PricingAttrs)
 
-		// TODO: FlatStrategyの生成（実装は省略）
-		_ = currency
-		return nil, errors.New("FlatStrategy construction not implemented (placeholder)")
-
-	case "CEL_EXPRESSION":
-		// CelExpressionStrategyの構築
-		formulaRaw, ok := parsed.PricingAttrs["Formula"]
-		if !ok {
-			return nil, errors.New("Formula is required for CEL_EXPRESSION pricing")
-		}
-		formula, ok := formulaRaw.(string)
-		if !ok {
-			return nil, errors.New("Formula must be a string")
-		}
-
-		currencyRaw, ok := parsed.PricingAttrs["Currency"]
-		if !ok {
-			return nil, errors.New("Currency is required for CEL_EXPRESSION pricing")
-		}
-		currency, ok := currencyRaw.(string)
-		if !ok {
-			return nil, errors.New("Currency must be a string")
-		}
-
-		// TODO: CelExpressionStrategyの生成（実装は省略）
-		_, _ = formula, currency
-		return nil, errors.New("CelExpressionStrategy construction not implemented (placeholder)")
+	case pricing.PricingComposite:
+		return uc.buildCompositeStrategy(parsed.PricingAttrs)
 
 	default:
 		return nil, fmt.Errorf("unsupported pricing type: %s", parsed.PricingType)
 	}
+}
+
+// buildFlatStrategy: FlatStrategyを構築
+func (uc *RegisterTariffUseCase) buildFlatStrategy(
+	attrs map[string]any,
+) (*pricing.FlatStrategy, error) {
+	amountRaw, ok := attrs["Amount"]
+	if !ok {
+		return nil, errors.New("Amount is required for FLAT pricing")
+	}
+	amount, err := toDecimal(amountRaw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid Amount: %w", err)
+	}
+
+	currencyRaw, ok := attrs["Currency"]
+	if !ok {
+		return nil, errors.New("Currency is required for FLAT pricing")
+	}
+	currency, ok := currencyRaw.(string)
+	if !ok {
+		return nil, errors.New("Currency must be a string")
+	}
+
+	money, err := shared.NewMoney(amount, currency)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create money: %w", err)
+	}
+
+	return &pricing.FlatStrategy{Amount: money}, nil
+}
+
+// buildCelExpressionStrategy: CelExpressionStrategyを構築
+func (uc *RegisterTariffUseCase) buildCelExpressionStrategy(
+	attrs map[string]any,
+) (*pricing.CelExpressionStrategy, error) {
+	formulaRaw, ok := attrs["Formula"]
+	if !ok {
+		return nil, errors.New("Formula is required for CEL_EXPRESSION pricing")
+	}
+	formula, ok := formulaRaw.(string)
+	if !ok {
+		return nil, errors.New("Formula must be a string")
+	}
+
+	currencyRaw, ok := attrs["Currency"]
+	if !ok {
+		return nil, errors.New("Currency is required for CEL_EXPRESSION pricing")
+	}
+	currency, ok := currencyRaw.(string)
+	if !ok {
+		return nil, errors.New("Currency must be a string")
+	}
+
+	return &pricing.CelExpressionStrategy{Formula: formula, Currency: currency}, nil
+}
+
+// buildCompositeStrategy: CompositeStrategyを構築
+// Steps内の各要素は map[string]any で、"Type" キーで戦略種別を指定する
+func (uc *RegisterTariffUseCase) buildCompositeStrategy(
+	attrs map[string]any,
+) (*pricing.CompositeStrategy, error) {
+	stepsRaw, ok := attrs["Steps"]
+	if !ok {
+		return nil, errors.New("Steps is required for COMPOSITE pricing")
+	}
+
+	// []any または []map[string]any の両方に対応
+	var stepMaps []map[string]any
+	switch v := stepsRaw.(type) {
+	case []map[string]any:
+		stepMaps = v
+	case []any:
+		for i, item := range v {
+			m, ok := item.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("step[%d] must be a map", i)
+			}
+			stepMaps = append(stepMaps, m)
+		}
+	default:
+		return nil, errors.New("Steps must be an array of pricing definitions")
+	}
+
+	if len(stepMaps) == 0 {
+		return nil, errors.New("Steps must contain at least one pricing definition")
+	}
+
+	var strategies []pricing.PricingStrategy
+	for i, stepAttrs := range stepMaps {
+		typeRaw, ok := stepAttrs["Type"]
+		if !ok {
+			return nil, fmt.Errorf("step[%d]: Type is required", i)
+		}
+		typeName, ok := typeRaw.(string)
+		if !ok {
+			return nil, fmt.Errorf("step[%d]: Type must be a string", i)
+		}
+
+		subParsed := pricing.ParsedLineItem{
+			PricingType:  pricing.PricingStrategyType(typeName),
+			PricingAttrs: stepAttrs,
+		}
+		strategy, err := uc.buildPricingStrategy(subParsed)
+		if err != nil {
+			return nil, fmt.Errorf("step[%d]: %w", i, err)
+		}
+		strategies = append(strategies, strategy)
+	}
+
+	return &pricing.CompositeStrategy{Steps: strategies}, nil
 }
 
 // parseTransportMode: 文字列からTransportModeに変換
@@ -452,4 +525,24 @@ func (uc *RegisterTariffUseCase) parseTransportMode(modeStr string) (shared.Tran
 	}
 
 	return mode, nil
+}
+
+// toDecimal: any型の値をdecimal.Decimalに変換するヘルパー
+func toDecimal(v any) (decimal.Decimal, error) {
+	switch val := v.(type) {
+	case decimal.Decimal:
+		return val, nil
+	case float64:
+		return decimal.NewFromFloat(val), nil
+	case float32:
+		return decimal.NewFromFloat32(val), nil
+	case int:
+		return decimal.NewFromInt(int64(val)), nil
+	case int64:
+		return decimal.NewFromInt(val), nil
+	case string:
+		return decimal.NewFromString(val)
+	default:
+		return decimal.Decimal{}, fmt.Errorf("unsupported type for decimal conversion: %T", v)
+	}
 }

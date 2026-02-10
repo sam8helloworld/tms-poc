@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/sam8helloworld/tms-poc/internal/sourcing/infrastructure/parser"
 	"github.com/sam8helloworld/tms-poc/internal/sourcing/domain/contract"
 	"github.com/sam8helloworld/tms-poc/internal/sourcing/domain/pricing"
 	"github.com/sam8helloworld/tms-poc/internal/network/domain/route"
@@ -29,14 +28,14 @@ import (
 type AmendContractTariffUseCase struct {
 	contractRepo  contract.ServiceContractRepository
 	tariffRepo    pricing.TariffRepository
-	parserFactory parser.TariffParserFactory
+	parserFactory pricing.TariffParserFactory
 }
 
 // NewAmendContractTariffUseCase: コンストラクタ
 func NewAmendContractTariffUseCase(
 	contractRepo contract.ServiceContractRepository,
 	tariffRepo pricing.TariffRepository,
-	parserFactory parser.TariffParserFactory,
+	parserFactory pricing.TariffParserFactory,
 ) *AmendContractTariffUseCase {
 	return &AmendContractTariffUseCase{
 		contractRepo:  contractRepo,
@@ -199,7 +198,7 @@ func (uc *AmendContractTariffUseCase) validateInput(input AmendContractTariffInp
 
 // buildServiceScope: ParsedLineItemからServiceScopeを構築
 func (uc *AmendContractTariffUseCase) buildServiceScope(
-	parsed parser.ParsedLineItem,
+	parsed pricing.ParsedLineItem,
 ) (pricing.ServiceScope, error) {
 	switch parsed.ServiceScopeType {
 	case "LOCATION":
@@ -263,7 +262,7 @@ func (uc *AmendContractTariffUseCase) buildServiceScope(
 
 // buildPricingStrategy: ParsedLineItemからPricingStrategyを構築
 func (uc *AmendContractTariffUseCase) buildPricingStrategy(
-	parsed parser.ParsedLineItem,
+	parsed pricing.ParsedLineItem,
 ) (pricing.PricingStrategy, error) {
 	switch parsed.PricingType {
 	case "FLAT":

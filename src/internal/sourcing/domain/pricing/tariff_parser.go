@@ -1,4 +1,4 @@
-package parser
+package pricing
 
 import (
 	"io"
@@ -8,7 +8,11 @@ import (
 )
 
 // ParsedTariffData: ファイルから解析された料金表データ
-// ドメインモデルへの変換前の中間データ構造
+// ドメインモデルへの変換前の中間データ構造（DTO）
+//
+// 設計上の注意:
+// - これはドメインモデルではなく、外部入力の中間表現
+// - Infrastructure層のParserが生成し、Application層がドメインモデルに変換する
 type ParsedTariffData struct {
 	TariffName    string
 	EffectiveFrom time.Time
@@ -19,36 +23,39 @@ type ParsedTariffData struct {
 // ParsedLineItem: 解析された料金明細1行のデータ
 type ParsedLineItem struct {
 	ChargeCode        string
-	ChargeName        string // 外部システムでの料金名称
+	ChargeName        string              // 外部システムでの料金名称
 	Category          string
-	ServiceScopeType  string            // "LOCATION" or "TRANSPORTATION"
-	ServiceScopeAttrs map[string]string // LocationID, OriginID, DestinationID, Mode など
-	PricingType       string            // "FLAT", "CEL_EXPRESSION", "COMPOSITE"
-	PricingAttrs      map[string]any    // Amount, Currency, Formula など
+	ServiceScopeType  ServiceScopeType    // ScopeLocation or ScopeTransportation
+	ServiceScopeAttrs map[string]string   // LocationID, OriginID, DestinationID, Mode など
+	PricingType       PricingStrategyType // PricingFlat, PricingCelExpression, PricingComposite
+	PricingAttrs      map[string]any      // Amount, Currency, Formula, Steps など
 }
 
 // TariffParser: 料金表ファイルを解析するインターフェース
-// 実装はインフラ層で行う（PDFParser, ExcelParser など）
+//
+// 設計上の注意:
+// - このインターフェースはDomain層で定義し、Infrastructure層で実装する（DIP）
+// - 複数の実装を切り替え可能（PDFParser, ExcelParser, AIParser など）
+// - Parse処理は外部システムとの境界で行われるため、Anti-Corruption Layerとして機能
 type TariffParser interface {
 	// Parse: ファイルから料金表データを解析
+	// 返り値の ParsedTariffData はドメインモデルではなく、中間データ構造
 	Parse(reader io.Reader) (*ParsedTariffData, error)
 
 	// SupportedFormats: このパーサーがサポートするファイル形式
-	SupportedFormats() []string // ["pdf", "xlsx", "csv"]
+	// 例: ["pdf", "xlsx", "csv"]
+	SupportedFormats() []string
 }
 
 // TariffParserFactory: ファイル形式に応じた適切なパーサーを返すファクトリー
+//
+// 設計上の注意:
+// - Factory Patternによる実装の切り替え
+// - Infrastructure層で具象Factoryを実装
 type TariffParserFactory interface {
 	// GetParser: ファイル形式に応じたパーサーを取得
+	// format例: "pdf", "xlsx", "csv", "ai"
 	GetParser(format string) (TariffParser, error)
-}
-
-// TariffDataConverter: 解析データをドメインモデルに変換するインターフェース
-// 本来はusecase層で実装されるが、複雑な変換ロジックの場合は専用のコンバーターを用意
-type TariffDataConverter interface {
-	// ConvertToLineItem: ParsedLineItemをドメインのTariffLineItemに変換
-	// LocationやPricingStrategyの解決が必要なため、リポジトリへの依存が生じる
-	// ConvertToLineItem(ctx context.Context, parsed ParsedLineItem) (*pricing.TariffLineItem, error)
 }
 
 // ValidationResult: 解析データのバリデーション結果
@@ -65,6 +72,11 @@ type ValidationError struct {
 }
 
 // TariffDataValidator: 解析データのバリデーター
+//
+// 設計上の注意:
+// - ドメインルールに基づくバリデーションを行う
+// - Infrastructure層で実装（ファイル形式特有のバリデーション）
+// - または Application層で実装（ドメインルール適用）
 type TariffDataValidator interface {
 	// Validate: 解析データの妥当性を検証
 	Validate(data *ParsedTariffData) *ValidationResult
