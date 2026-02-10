@@ -5,6 +5,14 @@ import (
 	"github.com/sam8helloworld/tms-poc/internal/shared"
 )
 
+// ServiceScopeType: サービス適用範囲の種別
+type ServiceScopeType string
+
+const (
+	ScopeLocation       ServiceScopeType = "LOCATION"
+	ScopeTransportation ServiceScopeType = "TRANSPORTATION"
+)
+
 // ServiceScope: この料金が適用される「物流サービスの範囲」を定義するインターフェース
 type ServiceScope interface {
 	IsApplicable(ctx ShipmentContext) bool
