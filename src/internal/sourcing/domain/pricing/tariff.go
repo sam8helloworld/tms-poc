@@ -1,6 +1,7 @@
 package pricing
 
 import (
+	"fmt"
 	"strconv"
 	"time"
 
@@ -167,4 +168,96 @@ func (t *Tariff) GetVersionInfo() string {
 // IsEffectiveAt: 指定日時にこのTariffが有効かどうか判定
 func (t *Tariff) IsEffectiveAt(date time.Time) bool {
 	return !date.Before(t.EffectiveDate.From) && !date.After(t.EffectiveDate.To)
+}
+
+// CalculateCharges: 計算リクエストに基づいて各費目のコストを計算する
+// 各LineItemのScopeで適用可否を判定し、適用可能なものだけCalculateを実行する。
+// 複数通貨の混在を許容し、通貨別にTotalAmountsを集計する。
+func (t *Tariff) CalculateCharges(req CalculationRequest) (*TariffCalculationResult, error) {
+	if len(t.LineItems) == 0 {
+		return nil, shared.NewDomainError(shared.ErrBusinessRuleViolation, "tariff has no line items to calculate")
+	}
+
+	ctx := req.toShipmentContext()
+
+	appliedItems := make([]AppliedChargeItem, 0, len(t.LineItems))
+	skippedItems := make([]SkippedChargeItem, 0)
+
+	for _, item := range t.LineItems {
+		if !item.Scope.IsApplicable(ctx) {
+			skippedItems = append(skippedItems, SkippedChargeItem{
+				LineItemID: item.ID,
+				ChargeCode: item.ChargeCode,
+				Category:   item.Category,
+				Reason:     "scope not applicable to the given route",
+			})
+			continue
+		}
+
+		amount, err := item.Logic.Calculate(ctx)
+		if err != nil {
+			return nil, shared.NewDomainError(shared.ErrBusinessRuleViolation,
+				"calculation failed for charge code "+item.ChargeCode).WithCause(err)
+		}
+
+		appliedItems = append(appliedItems, AppliedChargeItem{
+			LineItemID:       item.ID,
+			ChargeCode:       item.ChargeCode,
+			Category:         item.Category,
+			Amount:           amount,
+			ScopeDescription: describeScopeForItem(item),
+		})
+	}
+
+	totalAmounts := groupByCurrency(appliedItems)
+
+	return &TariffCalculationResult{
+		TariffID:     t.ID,
+		TariffName:   t.Name,
+		AppliedItems: appliedItems,
+		SkippedItems: skippedItems,
+		TotalAmounts: totalAmounts,
+	}, nil
+}
+
+// describeScopeForItem: Scope型に応じたhuman-readableな説明を生成
+func describeScopeForItem(item TariffLineItem) string {
+	switch s := item.Scope.(type) {
+	case LocationService:
+		return fmt.Sprintf("Location service (%s) at %s", s.ServiceType, uuid.UUID(s.LocationID).String()[:8])
+	case *LocationService:
+		return fmt.Sprintf("Location service (%s) at %s", s.ServiceType, uuid.UUID(s.LocationID).String()[:8])
+	case TransportationService:
+		return fmt.Sprintf("Transportation (%s) from %s to %s", s.Mode, uuid.UUID(s.OriginID).String()[:8], uuid.UUID(s.DestinationID).String()[:8])
+	case *TransportationService:
+		return fmt.Sprintf("Transportation (%s) from %s to %s", s.Mode, uuid.UUID(s.OriginID).String()[:8], uuid.UUID(s.DestinationID).String()[:8])
+	default:
+		return "unknown scope"
+	}
+}
+
+// groupByCurrency: AppliedItemsを通貨別に集計
+func groupByCurrency(items []AppliedChargeItem) []CurrencyTotal {
+	totals := make(map[string]shared.Money)
+
+	for _, item := range items {
+		currency := item.Amount.Currency
+		if existing, ok := totals[currency]; ok {
+			sum, err := existing.Add(item.Amount)
+			if err == nil {
+				totals[currency] = sum
+			}
+		} else {
+			totals[currency] = item.Amount
+		}
+	}
+
+	result := make([]CurrencyTotal, 0, len(totals))
+	for currency, amount := range totals {
+		result = append(result, CurrencyTotal{
+			Currency: currency,
+			Amount:   amount,
+		})
+	}
+	return result
 }
