@@ -368,6 +368,90 @@ classDiagram
             Scope: ServiceScope
             Logic: PricingStrategy
         }
+
+        class CargoItem["貨物明細<br/>(CargoItem)"] {
+            <<Value Object>>
+            ID: UUID
+            ProductName: String
+            HSCode: String
+            Quantity: Decimal
+            WeightKG: Decimal
+            VolumeM3: Decimal
+            PackageType: String
+            Properties: CargoProperties
+        }
+
+        class CargoProperties["貨物属性<br/>(CargoProperties)"] {
+            <<Value Object>>
+            HazmatClass: String
+            TemperatureMinC: Int
+            TemperatureMaxC: Int
+            IsOversized: Bool
+            IsFragile: Bool
+        }
+
+        class CargoSummary["貨物集計<br/>(CargoSummary)"] {
+            <<Value Object>>
+            TotalQuantity: Decimal
+            TotalWeightKG: Decimal
+            TotalVolumeM3: Decimal
+            ChargeableWeightKG: Decimal
+            ContainerRequirements: ContainerRequirement[]
+        }
+
+        class ContainerRequirement["コンテナ要件<br/>(ContainerRequirement)"] {
+            <<Value Object>>
+            ContainerType: String
+            Count: Decimal
+        }
+
+        class CalculationRequest["計算リクエスト<br/>(CalculationRequest)"] {
+            <<Value Object>>
+            Route: PhysicalRoute
+            Items: CargoItem[]
+            Summary: CargoSummary
+            Conditions: CalculationConditions
+        }
+
+        class CalculationConditions["計算条件<br/>(CalculationConditions)"] {
+            <<Value Object>>
+            DesiredShipDate: Time
+            Incoterms: String
+            SpecialRequirements: String[]
+            Attributes: Map
+        }
+
+        class TariffCalculationResult["料金計算結果<br/>(TariffCalculationResult)"] {
+            <<Value Object>>
+            TariffID: UUID
+            TariffName: String
+            AppliedItems: AppliedChargeItem[]
+            SkippedItems: SkippedChargeItem[]
+            TotalAmounts: CurrencyTotal[]
+        }
+
+        class AppliedChargeItem["適用費目<br/>(AppliedChargeItem)"] {
+            <<Value Object>>
+            LineItemID: UUID
+            ChargeCode: String
+            Category: String
+            Amount: Money
+            ScopeDescription: String
+        }
+
+        class SkippedChargeItem["スキップ費目<br/>(SkippedChargeItem)"] {
+            <<Value Object>>
+            LineItemID: UUID
+            ChargeCode: String
+            Category: String
+            Reason: String
+        }
+
+        class CurrencyTotal["通貨別合計<br/>(CurrencyTotal)"] {
+            <<Value Object>>
+            Currency: String
+            Amount: Money
+        }
     }
 
     %% ============================================
@@ -710,6 +794,17 @@ classDiagram
     Tariff --> Tariff : バージョン元(任意)
     TariffLineItem --> ServiceScope : 適用範囲
     TariffLineItem --> PricingStrategy : 計算ロジック
+    CargoItem "1" *-- "1" CargoProperties : 含む
+    CargoSummary "1" *-- "0..n" ContainerRequirement : 含む
+    CalculationRequest "1" *-- "0..n" CargoItem : 含む
+    CalculationRequest "1" *-- "1" CargoSummary : 含む
+    CalculationRequest "1" *-- "1" CalculationConditions : 含む
+    CalculationRequest --> PhysicalRoute : ルート参照
+    TariffCalculationResult "1" *-- "0..n" AppliedChargeItem : 含む
+    TariffCalculationResult "1" *-- "0..n" SkippedChargeItem : 含む
+    TariffCalculationResult "1" *-- "0..n" CurrencyTotal : 含む
+    AppliedChargeItem ..> Money : uses
+    CurrencyTotal ..> Money : uses
 
     %% Rate Aggregate
     Rate "1" *-- "0..n" RateEntry : 含む
@@ -767,7 +862,7 @@ classDiagram
 
     note for ServiceContract "・ステータス遷移: DRAFT → CONTRACTED → EXPIRED/CANCELLED<br/>・DRAFT状態: 入札段階で複数業者から料金表を受領<br/>・CONTRACTED状態: 契約成立後も料金表改定可能<br/>・statusフィールドはprivate、getter経由でアクセス<br/>・料金表(Tariff)は独立集約として分離（ContractIDで参照）"
 
-    note for Tariff "・独立した集約ルート（ContractIDで契約を参照）<br/>・バージョン管理: 同じ名前でもVersionが異なれば別レコード<br/>・Version=1, BaseVersionID=nil: 初版<br/>・Version>1, BaseVersionID設定: 改定版<br/>・EventRecorder埋め込みでドメインイベント記録"
+    note for Tariff "・独立した集約ルート（ContractIDで契約を参照）<br/>・バージョン管理: 同じ名前でもVersionが異なれば別レコード<br/>・Version=1, BaseVersionID=nil: 初版<br/>・Version>1, BaseVersionID設定: 改定版<br/>・EventRecorder埋め込みでドメインイベント記録<br/>・CalculateCharges: CalculationRequestに基づき各費目のコストを計算<br/>　- Scope判定でスキップ/適用を振り分け<br/>　- 複数通貨混在を許容し通貨別に集計"
 
     note for Rate "・ステータス遷移: DRAFT → ACTIVE → EXPIRED<br/>・複数業者のTariffからルート単位で選択・組み合わせた社内レート<br/>・DRAFT状態: エントリ追加・削除・Tariff差し替え可能<br/>・ACTIVE状態: エントリの変更不可<br/>・entries, statusフィールドはprivate、getter経由でアクセス"
 
@@ -836,7 +931,20 @@ classDiagram
   - **バージョン管理**: 同じ業者から改定版の料金表を受け取った場合、履歴を保持
     - `Version`: バージョン番号（1, 2, 3...）
     - `BaseVersionID`: 元となったTariffのID（初版の場合はnil）
+  - **CalculateCharges**: CalculationRequestに基づき各費目のコストを計算
+    - Scope判定で適用/スキップを振り分け
+    - 複数通貨混在を許容し通貨別にTotalAmountsを集計
 - **TariffLineItem**: 個別の料金定義（THC、運賃など）
+- **CargoItem**: 個別の貨物明細（品名、HSコード、重量、容積、属性）
+- **CargoProperties**: 貨物属性（危険物クラス、温度管理、超過サイズ等）
+- **CargoSummary**: 貨物集計情報（総数量、総重量、課金重量、コンテナ要件）
+- **ContainerRequirement**: コンテナ要件（コンテナ種別、必要数）
+- **CalculationRequest**: 料金計算リクエスト（ルート + 貨物 + 条件）
+- **CalculationConditions**: 計算条件（出荷希望日、インコタームズ、特殊要件）
+- **TariffCalculationResult**: 料金計算結果（適用費目、スキップ費目、通貨別合計）
+- **AppliedChargeItem**: 適用された費目の計算結果
+- **SkippedChargeItem**: スキップされた費目（理由付き）
+- **CurrencyTotal**: 通貨別の合計金額
 
 ### 4. Rate Aggregate (社内レート集約)
 - **Rate**: 社内レート（集約ルート）
