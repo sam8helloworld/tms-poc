@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"context"
 	"time"
 
 	"github.com/google/uuid"
@@ -61,4 +62,12 @@ func (r *EventRecorder) PullEvents() []DomainEvent {
 // HasEvents: 未処理のイベントがあるか判定
 func (r *EventRecorder) HasEvents() bool {
 	return len(r.events) > 0
+}
+
+// DomainEventPublisher: ドメインイベントを外部に発行するインターフェース
+// コンテキスト間の結果整合性を実現するために使用する
+// Infrastructure層で具象実装を提供する（メッセージキュー、インプロセスバス等）
+type DomainEventPublisher interface {
+	// Publish: ドメインイベントを発行する
+	Publish(ctx context.Context, events []DomainEvent) error
 }

@@ -125,7 +125,10 @@ graph TD
 - **Rate Management BC (社内レート集約)** → `rate/domain/rate/`
 - **Rate Management BC (レートアプリケーション)** → `rate/application/rate/`
 - **Shipment BC (出荷案件集約)** → `shipment/domain/shipment/`
+- **Shipment BC (出荷アプリケーション)** → `shipment/application/shipment/`
 - **Tracking BC (追跡集約)** → `tracking/domain/tracking/`
+- **Tracking BC (トラッキングアプリケーション)** → `tracking/application/tracking/`
+- **Tracking BC (インフラ)** → `tracking/infrastructure/tracking/`
 
 パッケージ間の依存関係:
 ```
@@ -145,8 +148,11 @@ shared (foundation - no dependencies)
 2. `sourcing/domain/contract`は`shared`のみに依存
 3. `sourcing/domain/pricing`は`shared`, `network/domain/route`に依存
 4. `rate/domain/rate`は`shared`, `network/domain/route`に依存
-5. `shipment/domain/shipment`は`shared`, `network/domain/route`, `tracking/domain/tracking`, `sourcing/domain/pricing`に依存
-6. 循環依存は禁止
+5. `shipment/domain/shipment`は`shared`, `network/domain/route`, `sourcing/domain/pricing`に依存
+6. `shipment/application/shipment`は`shipment/domain/shipment`, `tracking/domain/tracking`（イベント型のみ）に依存
+7. `tracking/application/tracking`は`tracking/domain/tracking`, `shared`に依存（Shipmentコンテキストには依存しない）
+8. 循環依存は禁止
+9. コンテキスト間連携はドメインイベント経由（結果整合性）
 
 ```mermaid
 classDiagram

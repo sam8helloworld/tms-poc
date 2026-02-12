@@ -20,3 +20,21 @@ func NewTrackingEventReceived(trackingUnitID, segmentID uuid.UUID, eventCode str
 		EventCode: eventCode,
 	}
 }
+
+// TrackingRegistered: トラッキング登録イベント
+type TrackingRegistered struct {
+	shared.BaseEvent
+	ShipmentID     uuid.UUID
+	TrackingNumber string
+	SegmentCount   int
+}
+
+// NewTrackingRegistered: TrackingRegisteredイベントを生成
+func NewTrackingRegistered(trackingUnitID, shipmentID uuid.UUID, trackingNumber string, segmentCount int) TrackingRegistered {
+	return TrackingRegistered{
+		BaseEvent:      shared.NewBaseEvent("TrackingRegistered", trackingUnitID, "TrackingUnit"),
+		ShipmentID:     shipmentID,
+		TrackingNumber: trackingNumber,
+		SegmentCount:   segmentCount,
+	}
+}
