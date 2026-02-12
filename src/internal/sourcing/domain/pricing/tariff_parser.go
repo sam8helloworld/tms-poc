@@ -27,7 +27,7 @@ type ParsedLineItem struct {
 	Category          string
 	ServiceScopeType  ServiceScopeType    // ScopeLocation or ScopeTransportation
 	ServiceScopeAttrs map[string]string   // LocationID, OriginID, DestinationID, Mode など
-	PricingType       PricingStrategyType // PricingFlat, PricingCelExpression, PricingComposite
+	PricingType       PricingStrategyType // PricingFlat, PricingExpression, PricingComposite
 	PricingAttrs      map[string]any      // Amount, Currency, Formula, Steps など
 }
 

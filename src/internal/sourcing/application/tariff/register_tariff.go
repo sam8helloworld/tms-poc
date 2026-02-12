@@ -387,8 +387,8 @@ func (uc *RegisterTariffUseCase) buildPricingStrategy(
 	case pricing.PricingFlat:
 		return uc.buildFlatStrategy(parsed.PricingAttrs)
 
-	case pricing.PricingCelExpression:
-		return uc.buildCelExpressionStrategy(parsed.PricingAttrs)
+	case pricing.PricingExpression:
+		return uc.buildExpressionStrategy(parsed.PricingAttrs)
 
 	case pricing.PricingComposite:
 		return uc.buildCompositeStrategy(parsed.PricingAttrs)
@@ -428,13 +428,13 @@ func (uc *RegisterTariffUseCase) buildFlatStrategy(
 	return &pricing.FlatStrategy{Amount: money}, nil
 }
 
-// buildCelExpressionStrategy: CelExpressionStrategyを構築
-func (uc *RegisterTariffUseCase) buildCelExpressionStrategy(
+// buildExpressionStrategy: ExpressionStrategyを構築
+func (uc *RegisterTariffUseCase) buildExpressionStrategy(
 	attrs map[string]any,
-) (*pricing.CelExpressionStrategy, error) {
+) (*pricing.ExpressionStrategy, error) {
 	formulaRaw, ok := attrs["Formula"]
 	if !ok {
-		return nil, errors.New("Formula is required for CEL_EXPRESSION pricing")
+		return nil, errors.New("Formula is required for EXPRESSION pricing")
 	}
 	formula, ok := formulaRaw.(string)
 	if !ok {
@@ -443,14 +443,14 @@ func (uc *RegisterTariffUseCase) buildCelExpressionStrategy(
 
 	currencyRaw, ok := attrs["Currency"]
 	if !ok {
-		return nil, errors.New("Currency is required for CEL_EXPRESSION pricing")
+		return nil, errors.New("Currency is required for EXPRESSION pricing")
 	}
 	currency, ok := currencyRaw.(string)
 	if !ok {
 		return nil, errors.New("Currency must be a string")
 	}
 
-	return &pricing.CelExpressionStrategy{Formula: formula, Currency: currency}, nil
+	return &pricing.ExpressionStrategy{Formula: formula, Currency: currency}, nil
 }
 
 // buildCompositeStrategy: CompositeStrategyを構築

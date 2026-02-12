@@ -8,9 +8,9 @@ import (
 type PricingStrategyType string
 
 const (
-	PricingFlat          PricingStrategyType = "FLAT"
-	PricingCelExpression PricingStrategyType = "CEL_EXPRESSION"
-	PricingComposite     PricingStrategyType = "COMPOSITE"
+	PricingFlat       PricingStrategyType = "FLAT"
+	PricingExpression PricingStrategyType = "EXPRESSION"
+	PricingComposite  PricingStrategyType = "COMPOSITE"
 )
 
 type PricingStrategy interface {

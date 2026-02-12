@@ -50,14 +50,14 @@ func flatItem(chargeCode, category string, scopeType pricing.ServiceScopeType, s
 	}
 }
 
-// celItem: CEL_EXPRESSIONプライシングのLineItemを構築するヘルパー
-func celItem(chargeCode, category string, scopeType pricing.ServiceScopeType, scopeAttrs map[string]string, formula, currency string) pricing.ParsedLineItem {
+// exprItem: EXPRESSIONプライシングのLineItemを構築するヘルパー
+func exprItem(chargeCode, category string, scopeType pricing.ServiceScopeType, scopeAttrs map[string]string, formula, currency string) pricing.ParsedLineItem {
 	return pricing.ParsedLineItem{
 		ChargeCode:        chargeCode,
 		Category:          category,
 		ServiceScopeType:  scopeType,
 		ServiceScopeAttrs: scopeAttrs,
-		PricingType:       pricing.PricingCelExpression,
+		PricingType:       pricing.PricingExpression,
 		PricingAttrs: map[string]any{
 			"Formula":  formula,
 			"Currency": currency,
@@ -248,18 +248,18 @@ func TestConvertToTariff_AirFreight(t *testing.T) {
 		EffectiveFrom: testFrom,
 		EffectiveTo:   testTo,
 		LineItems: []pricing.ParsedLineItem{
-			// Air Freight Rate: 航空運賃（重量帯別はCEL式で表現）
-			celItem("AIR_FREIGHT", "FREIGHT_BASIC", pricing.ScopeTransportation,
+			// Air Freight Rate: 航空運賃（重量帯別はExpression式で表現）
+			exprItem("AIR_FREIGHT", "FREIGHT_BASIC", pricing.ScopeTransportation,
 				transportAttrs(naritaID, laxAirportID, "AIR"),
 				"weight <= 45 ? weight * 8.50 : weight <= 100 ? weight * 7.20 : weight <= 300 ? weight * 6.00 : weight <= 500 ? weight * 5.50 : weight * 5.00",
 				"USD"),
 			// FSC: 燃料割増料 (per kg)
-			celItem("FSC", "SURCHARGE_FUEL", pricing.ScopeTransportation,
+			exprItem("FSC", "SURCHARGE_FUEL", pricing.ScopeTransportation,
 				transportAttrs(naritaID, laxAirportID, "AIR"),
 				"chargeable_weight * 1.20",
 				"USD"),
 			// SSC: 保安料 (per kg)
-			celItem("SSC", "SURCHARGE_FUEL", pricing.ScopeTransportation,
+			exprItem("SSC", "SURCHARGE_FUEL", pricing.ScopeTransportation,
 				transportAttrs(naritaID, laxAirportID, "AIR"),
 				"chargeable_weight * 0.10",
 				"USD"),
@@ -287,7 +287,7 @@ func TestConvertToTariff_AirFreight(t *testing.T) {
 		t.Fatalf("LineItems count = %d, want 6", len(tariff.LineItems))
 	}
 
-	// Air Freight (CEL_EXPRESSION)の検証
+	// Air Freight (EXPRESSION)の検証
 	airFreight := tariff.LineItems[0]
 	if airFreight.ChargeCode != "AIR_FREIGHT" {
 		t.Errorf("AIR_FREIGHT ChargeCode = %q", airFreight.ChargeCode)
@@ -299,9 +299,9 @@ func TestConvertToTariff_AirFreight(t *testing.T) {
 	if ts.Mode != shared.ModeAir {
 		t.Errorf("AIR_FREIGHT Mode = %q, want %q", ts.Mode, shared.ModeAir)
 	}
-	cel, ok := airFreight.Logic.(*pricing.CelExpressionStrategy)
+	cel, ok := airFreight.Logic.(*pricing.ExpressionStrategy)
 	if !ok {
-		t.Fatalf("AIR_FREIGHT Logic type = %T, want *CelExpressionStrategy", airFreight.Logic)
+		t.Fatalf("AIR_FREIGHT Logic type = %T, want *ExpressionStrategy", airFreight.Logic)
 	}
 	if cel.Currency != "USD" {
 		t.Errorf("AIR_FREIGHT Currency = %q, want %q", cel.Currency, "USD")
@@ -310,11 +310,11 @@ func TestConvertToTariff_AirFreight(t *testing.T) {
 		t.Error("AIR_FREIGHT Formula should not be empty")
 	}
 
-	// FSC (CEL_EXPRESSION)の検証
+	// FSC (EXPRESSION)の検証
 	fsc := tariff.LineItems[1]
-	fscCel, ok := fsc.Logic.(*pricing.CelExpressionStrategy)
+	fscCel, ok := fsc.Logic.(*pricing.ExpressionStrategy)
 	if !ok {
-		t.Fatalf("FSC Logic type = %T, want *CelExpressionStrategy", fsc.Logic)
+		t.Fatalf("FSC Logic type = %T, want *ExpressionStrategy", fsc.Logic)
 	}
 	if fscCel.Formula != "chargeable_weight * 1.20" {
 		t.Errorf("FSC Formula = %q, want %q", fscCel.Formula, "chargeable_weight * 1.20")
@@ -415,13 +415,13 @@ func TestConvertToTariff_Haulage(t *testing.T) {
 			// Charter Fee: チャーター便運賃（4tトラック固定料金）
 			flatItem("CHARTER_4T", "FREIGHT_BASIC", pricing.ScopeTransportation,
 				transportAttrs(warehouseID, tokyoPortID, "TRUCK"), 45000, "JPY"),
-			// LTL Rate: 混載便運賃（kg単価のCEL式）
-			celItem("LTL_RATE", "FREIGHT_BASIC", pricing.ScopeTransportation,
+			// LTL Rate: 混載便運賃（kg単価のExpression式）
+			exprItem("LTL_RATE", "FREIGHT_BASIC", pricing.ScopeTransportation,
 				transportAttrs(warehouseID, tokyoPortID, "TRUCK"),
 				"max(weight_kg, volume_m3 * 280) * 35",
 				"JPY"),
 			// Waiting Charge: 待機料（30分超過ごとの追加）
-			celItem("WAITING_CHARGE", "SURCHARGE_FUEL", pricing.ScopeTransportation,
+			exprItem("WAITING_CHARGE", "SURCHARGE_FUEL", pricing.ScopeTransportation,
 				transportAttrs(warehouseID, tokyoPortID, "TRUCK"),
 				"max(0, waiting_minutes - 30) / 30 * 3000",
 				"JPY"),
@@ -447,11 +447,11 @@ func TestConvertToTariff_Haulage(t *testing.T) {
 		t.Errorf("CHARTER Amount = %v, want 45000", charterFlat.Amount.Amount)
 	}
 
-	// LTL Rate (CEL_EXPRESSION)
+	// LTL Rate (EXPRESSION)
 	ltl := tariff.LineItems[1]
-	ltlCel, ok := ltl.Logic.(*pricing.CelExpressionStrategy)
+	ltlCel, ok := ltl.Logic.(*pricing.ExpressionStrategy)
 	if !ok {
-		t.Fatalf("LTL Logic type = %T, want *CelExpressionStrategy", ltl.Logic)
+		t.Fatalf("LTL Logic type = %T, want *ExpressionStrategy", ltl.Logic)
 	}
 	if ltlCel.Formula != "max(weight_kg, volume_m3 * 280) * 35" {
 		t.Errorf("LTL Formula = %q", ltlCel.Formula)
@@ -541,13 +541,13 @@ func TestConvertToTariff_Warehousing(t *testing.T) {
 		EffectiveFrom: testFrom,
 		EffectiveTo:   testTo,
 		LineItems: []pricing.ParsedLineItem{
-			// CFS Charge: 混載倉庫利用料（RT単位のCEL式）
-			celItem("CFS_CHARGE", "ORIGIN_LOCAL", pricing.ScopeLocation,
+			// CFS Charge: 混載倉庫利用料（RT単位のExpression式）
+			exprItem("CFS_CHARGE", "ORIGIN_LOCAL", pricing.ScopeLocation,
 				locationAttrs(cfsWarehouseID, "STORAGE"),
 				"revenue_ton * 3500",
 				"JPY"),
-			// Storage Fee: 保管料（日数×容積のCEL式）
-			celItem("STORAGE_FEE", "ORIGIN_LOCAL", pricing.ScopeLocation,
+			// Storage Fee: 保管料（日数×容積のExpression式）
+			exprItem("STORAGE_FEE", "ORIGIN_LOCAL", pricing.ScopeLocation,
 				locationAttrs(cfsWarehouseID, "STORAGE"),
 				"storage_days * volume_m3 * 150",
 				"JPY"),
@@ -561,7 +561,7 @@ func TestConvertToTariff_Warehousing(t *testing.T) {
 			flatItem("VANNING_FEE", "ORIGIN_LOCAL", pricing.ScopeLocation,
 				locationAttrs(cfsWarehouseID, "HANDLING"), 35000, "JPY"),
 			// Labeling Fee: ラベリング費
-			celItem("LABELING_FEE", "ORIGIN_LOCAL", pricing.ScopeLocation,
+			exprItem("LABELING_FEE", "ORIGIN_LOCAL", pricing.ScopeLocation,
 				locationAttrs(cfsWarehouseID, "HANDLING"),
 				"carton_count * 50",
 				"JPY"),
@@ -580,7 +580,7 @@ func TestConvertToTariff_Warehousing(t *testing.T) {
 		t.Fatalf("LineItems count = %d, want 6", len(tariff.LineItems))
 	}
 
-	// CFS Charge (CEL, STORAGE scope)
+	// CFS Charge (EXPRESSION, STORAGE scope)
 	cfs := tariff.LineItems[0]
 	cfsLS, ok := cfs.Scope.(pricing.LocationService)
 	if !ok {
@@ -589,9 +589,9 @@ func TestConvertToTariff_Warehousing(t *testing.T) {
 	if cfsLS.ServiceType != "STORAGE" {
 		t.Errorf("CFS ServiceType = %q, want %q", cfsLS.ServiceType, "STORAGE")
 	}
-	cfsCel, ok := cfs.Logic.(*pricing.CelExpressionStrategy)
+	cfsCel, ok := cfs.Logic.(*pricing.ExpressionStrategy)
 	if !ok {
-		t.Fatalf("CFS Logic type = %T, want *CelExpressionStrategy", cfs.Logic)
+		t.Fatalf("CFS Logic type = %T, want *ExpressionStrategy", cfs.Logic)
 	}
 	if cfsCel.Formula != "revenue_ton * 3500" {
 		t.Errorf("CFS Formula = %q, want %q", cfsCel.Formula, "revenue_ton * 3500")
@@ -629,12 +629,12 @@ func TestConvertToTariff_DemurrageDetention(t *testing.T) {
 		LineItems: []pricing.ParsedLineItem{
 			// Demurrage: フリータイム超過時の保管延滞料（港内）
 			// フリータイム4日、超過後は日額課金
-			celItem("DEMURRAGE", "DEST_LOCAL", pricing.ScopeLocation,
+			exprItem("DEMURRAGE", "DEST_LOCAL", pricing.ScopeLocation,
 				locationAttrs(losAngelesID, "STORAGE"),
 				"max(0, detention_days - 4) * 150",
 				"USD"),
 			// Detention: フリータイム超過時のコンテナ返却延滞料（港外）
-			celItem("DETENTION", "DEST_LOCAL", pricing.ScopeLocation,
+			exprItem("DETENTION", "DEST_LOCAL", pricing.ScopeLocation,
 				locationAttrs(losAngelesID, "STORAGE"),
 				"max(0, detention_days - 7) * 100",
 				"USD"),
@@ -650,14 +650,14 @@ func TestConvertToTariff_DemurrageDetention(t *testing.T) {
 		t.Fatalf("LineItems count = %d, want 2", len(tariff.LineItems))
 	}
 
-	// Demurrage (CEL式でフリータイム超過分を計算)
+	// Demurrage (Expression式でフリータイム超過分を計算)
 	demurrage := tariff.LineItems[0]
 	if demurrage.ChargeCode != "DEMURRAGE" {
 		t.Errorf("ChargeCode = %q, want DEMURRAGE", demurrage.ChargeCode)
 	}
-	demCel, ok := demurrage.Logic.(*pricing.CelExpressionStrategy)
+	demCel, ok := demurrage.Logic.(*pricing.ExpressionStrategy)
 	if !ok {
-		t.Fatalf("DEMURRAGE Logic type = %T, want *CelExpressionStrategy", demurrage.Logic)
+		t.Fatalf("DEMURRAGE Logic type = %T, want *ExpressionStrategy", demurrage.Logic)
 	}
 	if demCel.Formula != "max(0, detention_days - 4) * 150" {
 		t.Errorf("DEMURRAGE Formula = %q", demCel.Formula)
@@ -805,8 +805,8 @@ func TestConvertToTariff_CompositeOceanFreight(t *testing.T) {
 func TestConvertToTariff_CompositeMixedStrategies(t *testing.T) {
 	uc := newUC()
 
-	// FLAT + CEL_EXPRESSION の混合Composite
-	// 航空運賃: 基本運賃($500固定) + 重量帯別追加運賃(CEL式)
+	// FLAT + EXPRESSION の混合Composite
+	// 航空運賃: 基本運賃($500固定) + 重量帯別追加運賃(Expression式)
 	data := &pricing.ParsedTariffData{
 		TariffName:    "2026 Composite Air Rate",
 		EffectiveFrom: testFrom,
@@ -816,7 +816,7 @@ func TestConvertToTariff_CompositeMixedStrategies(t *testing.T) {
 				transportAttrs(naritaID, laxAirportID, "AIR"),
 				[]map[string]any{
 					{"Type": "FLAT", "Amount": 500.00, "Currency": "USD"},
-					{"Type": "CEL_EXPRESSION", "Formula": "max(0, chargeable_weight - 45) * 3.50", "Currency": "USD"},
+					{"Type": "EXPRESSION", "Formula": "max(0, chargeable_weight - 45) * 3.50", "Currency": "USD"},
 				}),
 		},
 	}
@@ -843,10 +843,10 @@ func TestConvertToTariff_CompositeMixedStrategies(t *testing.T) {
 		t.Errorf("step[0] Amount = %v, want 500.00", flat.Amount.Amount)
 	}
 
-	// Step 1: CelExpressionStrategy
-	cel, ok := comp.Steps[1].(*pricing.CelExpressionStrategy)
+	// Step 1: ExpressionStrategy
+	cel, ok := comp.Steps[1].(*pricing.ExpressionStrategy)
 	if !ok {
-		t.Fatalf("step[1] type = %T, want *CelExpressionStrategy", comp.Steps[1])
+		t.Fatalf("step[1] type = %T, want *ExpressionStrategy", comp.Steps[1])
 	}
 	if cel.Formula != "max(0, chargeable_weight - 45) * 3.50" {
 		t.Errorf("step[1] Formula = %q", cel.Formula)
@@ -1136,7 +1136,7 @@ func TestConvertToTariff_MissingFormula(t *testing.T) {
 				Category:          "FREIGHT_BASIC",
 				ServiceScopeType:  pricing.ScopeLocation,
 				ServiceScopeAttrs: locationAttrs(naritaID, "HANDLING"),
-				PricingType:       pricing.PricingCelExpression,
+				PricingType:       pricing.PricingExpression,
 				PricingAttrs:      map[string]any{"Currency": "USD"}, // Formula missing
 			},
 		},

@@ -256,9 +256,9 @@ func (uc *AddTariffVersionUseCase) buildPricingStrategy(
 		// FlatStrategyの構築（プレースホルダー）
 		return nil, errors.New("FlatStrategy construction not implemented (placeholder)")
 
-	case "CEL_EXPRESSION":
-		// CelExpressionStrategyの構築（プレースホルダー）
-		return nil, errors.New("CelExpressionStrategy construction not implemented (placeholder)")
+	case "EXPRESSION":
+		// ExpressionStrategyの構築（プレースホルダー）
+		return nil, errors.New("ExpressionStrategy construction not implemented (placeholder)")
 
 	default:
 		return nil, fmt.Errorf("unsupported pricing type: %s", parsed.PricingType)

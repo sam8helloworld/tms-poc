@@ -70,15 +70,15 @@ func addFlatLineItem(t *testing.T, tariff *Tariff, chargeCode, category string, 
 	}
 }
 
-// addCelLineItem: CEL式料金のLineItemをTariffに追加するヘルパー
-func addCelLineItem(t *testing.T, tariff *Tariff, chargeCode, category string, scope ServiceScope, formula, currency string) {
+// addExprLineItem: Expression式料金のLineItemをTariffに追加するヘルパー
+func addExprLineItem(t *testing.T, tariff *Tariff, chargeCode, category string, scope ServiceScope, formula, currency string) {
 	t.Helper()
 	err := tariff.AddLineItem(TariffLineItem{
 		ID:         uuid.New(),
 		ChargeCode: chargeCode,
 		Category:   category,
 		Scope:      scope,
-		Logic:      &CelExpressionStrategy{Formula: formula, Currency: currency},
+		Logic:      &ExpressionStrategy{Formula: formula, Currency: currency},
 	})
 	if err != nil {
 		t.Fatalf("failed to add line item %s: %v", chargeCode, err)
@@ -377,8 +377,8 @@ func TestCalculateCharges_OceanFCL(t *testing.T) {
 }
 
 // ============================================================
-// 2. 航空輸送: CEL式 + FLAT混在
-//    CEL式はスタブ実装のため固定値100.0が返る
+// 2. 航空輸送: Expression式 + FLAT混在
+//    Expression式で実際に計算される
 // ============================================================
 
 func TestCalculateCharges_AirFreight(t *testing.T) {
@@ -391,14 +391,17 @@ func TestCalculateCharges_AirFreight(t *testing.T) {
 	}
 	naritaLocation := LocationService{LocationID: calcNaritaID, ServiceType: "HANDLING"}
 
-	// 航空運賃（CEL式）
-	addCelLineItem(t, tariff, "AIR_FREIGHT", "FREIGHT_BASIC", airTransport,
+	// 航空運賃（Expression式）
+	// weight=100kg → 100*5.00 = 500 (重量が45kgを超えるので5.00/kg)
+	addExprLineItem(t, tariff, "AIR_FREIGHT", "FREIGHT_BASIC", airTransport,
 		"weight <= 45 ? weight * 8.50 : weight * 5.00", "USD")
-	// 燃料割増（CEL式）
-	addCelLineItem(t, tariff, "FSC", "SURCHARGE_FUEL", airTransport,
+	// 燃料割増（Expression式）
+	// chargeable_weight = max(100, 0.5*1000) = 500 → 500*1.20 = 600
+	addExprLineItem(t, tariff, "FSC", "SURCHARGE_FUEL", airTransport,
 		"chargeable_weight * 1.20", "USD")
-	// 保安料（CEL式）
-	addCelLineItem(t, tariff, "SSC", "SURCHARGE_FUEL", airTransport,
+	// 保安料（Expression式）
+	// chargeable_weight = 500 → 500*0.10 = 50
+	addExprLineItem(t, tariff, "SSC", "SURCHARGE_FUEL", airTransport,
 		"chargeable_weight * 0.10", "USD")
 	// AWB Fee（FLAT, LOCATION）
 	addFlatLineItem(t, tariff, "AWB_FEE", "ORIGIN_LOCAL", naritaLocation, 3000, "JPY")
@@ -436,7 +439,7 @@ func TestCalculateCharges_AirFreight(t *testing.T) {
 		t.Errorf("SkippedCount = %d, want 0", result.SkippedCount())
 	}
 
-	// CEL式はスタブ実装（100.0固定）なので金額はCurrency:USD, Amount:100.0
+	// AIR_FREIGHT: weight=100kg, 100>45 なので 100*5.00 = 500
 	airFreight := findAppliedByChargeCode(result.AppliedItems, "AIR_FREIGHT")
 	if airFreight == nil {
 		t.Fatal("AIR_FREIGHT not found")
@@ -444,9 +447,9 @@ func TestCalculateCharges_AirFreight(t *testing.T) {
 	if airFreight.Amount.Currency != "USD" {
 		t.Errorf("AIR_FREIGHT currency = %q, want USD", airFreight.Amount.Currency)
 	}
-	// CELスタブ: 固定100.0
-	if !airFreight.Amount.Amount.Equal(decimal.NewFromFloat(100.0)) {
-		t.Errorf("AIR_FREIGHT amount = %v, want 100.0 (CEL stub)", airFreight.Amount.Amount)
+	expectedAirFreight := decimal.NewFromFloat(500.0)
+	if !airFreight.Amount.Amount.Equal(expectedAirFreight) {
+		t.Errorf("AIR_FREIGHT amount = %v, want %v (100kg * $5.00)", airFreight.Amount.Amount, expectedAirFreight)
 	}
 
 	// FLAT項目の検証（Quantity=1なので単価そのまま）
@@ -459,14 +462,14 @@ func TestCalculateCharges_AirFreight(t *testing.T) {
 	}
 
 	// 通貨別合計
-	// USD: CEL(100) + CEL(100) + CEL(100) + FLAT(25*1) = 325
+	// USD: AIR_FREIGHT(500) + FSC(600) + SSC(50) + TERMINAL_CHARGE(25) = 1175
 	usdTotal := findTotalByCurrency(result.TotalAmounts, "USD")
 	if usdTotal == nil {
 		t.Fatal("USD total not found")
 	}
-	expectedUSD := decimal.NewFromFloat(325.0)
+	expectedUSD := decimal.NewFromFloat(1175.0)
 	if !usdTotal.Amount.Amount.Equal(expectedUSD) {
-		t.Errorf("USD total = %v, want %v", usdTotal.Amount.Amount, expectedUSD)
+		t.Errorf("USD total = %v, want %v (500+600+50+25)", usdTotal.Amount.Amount, expectedUSD)
 	}
 
 	// JPY: FLAT(3000*1) + FLAT(5000*1) = 8000
@@ -676,7 +679,7 @@ func TestCalculateCharges_CompositeOceanFreight(t *testing.T) {
 }
 
 // ============================================================
-// 6. COMPOSITE: FLAT + CEL混合（航空運賃パッケージ）
+// 6. COMPOSITE: FLAT + Expression混合（航空運賃パッケージ）
 // ============================================================
 
 func TestCalculateCharges_CompositeMixedStrategies(t *testing.T) {
@@ -686,10 +689,12 @@ func TestCalculateCharges_CompositeMixedStrategies(t *testing.T) {
 		OriginID: calcNaritaID, DestinationID: calcLaxAirportID, Mode: shared.ModeAir,
 	}
 
-	// COMPOSITE: 基本運賃($500 FLAT) + 重量帯別追加(CEL式: stub→100.0)
+	// COMPOSITE: 基本運賃($500 FLAT) + 重量帯別追加(Expression式)
+	// chargeable_weight = max(200, 1.0*1000) = 1000
+	// (1000-45)*3.50 = 955*3.50 = 3342.5
 	addCompositeLineItem(t, tariff, "AIR_FREIGHT_PKG", "FREIGHT_BASIC", airTransport, []PricingStrategy{
 		&FlatStrategy{Amount: mustMoney(500.00, "USD")},
-		&CelExpressionStrategy{Formula: "max(0, chargeable_weight - 45) * 3.50", Currency: "USD"},
+		&ExpressionStrategy{Formula: "max(0, chargeable_weight - 45) * 3.50", Currency: "USD"},
 	})
 
 	items := []CargoItem{
@@ -715,10 +720,10 @@ func TestCalculateCharges_CompositeMixedStrategies(t *testing.T) {
 	}
 
 	pkg := result.AppliedItems[0]
-	// FLAT: 500*1 = 500, CEL stub: 100.0 → 合計 600
-	expected := decimal.NewFromFloat(600.0)
+	// FLAT: 500*1 = 500, Expression: (1000-45)*3.50 = 3342.5 → 合計 3842.5
+	expected := decimal.NewFromFloat(3842.5)
 	if !pkg.Amount.Amount.Equal(expected) {
-		t.Errorf("AIR_FREIGHT_PKG amount = %v, want %v (FLAT:500 + CEL_stub:100)", pkg.Amount.Amount, expected)
+		t.Errorf("AIR_FREIGHT_PKG amount = %v, want %v (FLAT:500 + Expression:3342.5)", pkg.Amount.Amount, expected)
 	}
 }
 
@@ -1070,21 +1075,28 @@ func TestCalculateCharges_CustomsAndWarehouse_PartialMatch(t *testing.T) {
 }
 
 // ============================================================
-// 14. デマレージ/ディテンション: CEL式によるフリータイム超過計算
-//    CEL式はスタブのため金額は固定100.0だが、スコープ判定を検証
+// 14. デマレージ/ディテンション: Expression式によるフリータイム超過計算
+//    detention_days属性が未設定の場合、式はエラーになるためスキップ可能性あり
 // ============================================================
 
 func TestCalculateCharges_DemurrageDetention(t *testing.T) {
 	tariff := newTestTariff("Demurrage & Detention")
 
 	laStorage := LocationService{LocationID: calcLosAngelesID, ServiceType: "STORAGE"}
-	addCelLineItem(t, tariff, "DEMURRAGE", "DEST_LOCAL", laStorage,
+	addExprLineItem(t, tariff, "DEMURRAGE", "DEST_LOCAL", laStorage,
 		"max(0, detention_days - 4) * 150", "USD")
-	addCelLineItem(t, tariff, "DETENTION", "DEST_LOCAL", laStorage,
+	addExprLineItem(t, tariff, "DETENTION", "DEST_LOCAL", laStorage,
 		"max(0, detention_days - 7) * 100", "USD")
 
+	// detention_daysを含むConditionsを作成
+	conditions := CalculationConditions{
+		Incoterms: "FOB",
+		Attributes: map[string]string{
+			"detention_days": "10", // 10日間の滞留
+		},
+	}
 	// 海上ルート（LA港を含む→LOCATION scopeに一致）
-	req, err := NewCalculationRequest(oceanRoute(), simpleCargoItems(), simpleConditions())
+	req, err := NewCalculationRequest(oceanRoute(), simpleCargoItems(), conditions)
 	if err != nil {
 		t.Fatalf("NewCalculationRequest failed: %v", err)
 	}
@@ -1106,14 +1118,20 @@ func TestCalculateCharges_DemurrageDetention(t *testing.T) {
 	if dem.Category != "DEST_LOCAL" {
 		t.Errorf("DEMURRAGE category = %q, want DEST_LOCAL", dem.Category)
 	}
-	// CEL stub → 100.0
-	if !dem.Amount.Amount.Equal(decimal.NewFromFloat(100.0)) {
-		t.Errorf("DEMURRAGE amount = %v, want 100.0 (CEL stub)", dem.Amount.Amount)
+	// DEMURRAGE: max(0, 10 - 4) * 150 = 6 * 150 = 900
+	expectedDem := decimal.NewFromFloat(900.0)
+	if !dem.Amount.Amount.Equal(expectedDem) {
+		t.Errorf("DEMURRAGE amount = %v, want %v (max(0, 10-4)*150)", dem.Amount.Amount, expectedDem)
 	}
 
 	det := findAppliedByChargeCode(result.AppliedItems, "DETENTION")
 	if det == nil {
 		t.Fatal("DETENTION not found")
+	}
+	// DETENTION: max(0, 10 - 7) * 100 = 3 * 100 = 300
+	expectedDet := decimal.NewFromFloat(300.0)
+	if !det.Amount.Amount.Equal(expectedDet) {
+		t.Errorf("DETENTION amount = %v, want %v (max(0, 10-7)*100)", det.Amount.Amount, expectedDet)
 	}
 }
 

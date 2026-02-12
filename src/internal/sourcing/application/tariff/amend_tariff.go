@@ -268,8 +268,8 @@ func (uc *AmendContractTariffUseCase) buildPricingStrategy(
 	case "FLAT":
 		return nil, errors.New("FlatStrategy construction not implemented (placeholder)")
 
-	case "CEL_EXPRESSION":
-		return nil, errors.New("CelExpressionStrategy construction not implemented (placeholder)")
+	case "EXPRESSION":
+		return nil, errors.New("ExpressionStrategy construction not implemented (placeholder)")
 
 	default:
 		return nil, fmt.Errorf("unsupported pricing type: %s", parsed.PricingType)
