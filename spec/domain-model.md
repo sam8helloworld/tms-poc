@@ -32,12 +32,20 @@ graph TD
         Tracking["Tracking Context<br/>(TrackingUnit)<br/>────────<br/>Aggregates:<br/>• TrackingUnit<br/>• ServiceOperator"]
     end
 
+    %% Cross-cutting (実行支援)
+    subgraph "Cross-cutting - Operations Support (実行支援)"
+        Operation["Operation Context<br/>(SOP管理)<br/>────────<br/>Aggregates:<br/>• SOPDefinition<br/>• SOPInstance"]
+        Document["Document Context<br/>(証憑管理)<br/>────────<br/>Aggregates:<br/>• Document"]
+    end
+
     %% Shared Kernel relationships
     Shared -.->|Foundation| Network
     Shared -.->|Foundation| Sourcing
     Shared -.->|Foundation| RateMgmt
     Shared -.->|Foundation| Shipment
     Shared -.->|Foundation| Tracking
+    Shared -.->|Foundation| Operation
+    Shared -.->|Foundation| Document
 
     %% Master Data relationships (OHS: Open Host Service)
     Network -->|Shared Kernel<br/>+ OHS| Sourcing
@@ -55,12 +63,18 @@ graph TD
     Shipment -->|ID Reference<br/>trackingUnitIDs| Tracking
     Tracking -.->|Domain Events<br/>TrackingStatusChanged| Shipment
 
+    %% Downstream to Cross-cutting
+    Shipment -.->|Domain Events<br/>ShipmentCreated| Operation
+    Operation -->|ID Reference<br/>SOPTask.LinkedDocumentIDs| Document
+
     %% Styling
     style Network fill:#e1f5ff,stroke:#01579b,stroke-width:2px
     style Sourcing fill:#fff3e0,stroke:#e65100,stroke-width:2px
     style RateMgmt fill:#f3e5f5,stroke:#4a148c,stroke-width:3px
     style Shipment fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
     style Tracking fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style Operation fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    style Document fill:#e0f2f1,stroke:#004d40,stroke-width:2px
     style Shared fill:#f5f5f5,stroke:#424242,stroke-width:2px,stroke-dasharray: 5 5
 ```
 
@@ -89,6 +103,14 @@ graph TD
 - **Tracking → Shipment**: 実績ステータス変化を非同期通知
 - TrackingStatusChanged イベントを通じて Shipment のステータスを更新（Derived Status）
 - 逆方向の直接参照を避け、結合度を低く保つ
+
+#### Domain Events (ドメインイベント) - Shipment → Operation
+- **Shipment → Operation**: ShipmentCreated イベントを通じて SOPInstance を自動生成
+- Operation Context は Shipment の内部モデルに依存せず、ShipmentID のみを保持
+
+#### ID Reference - Operation → Document
+- **Operation → Document**: SOPTask.LinkedDocumentIDs で書類を参照
+- Document Context は Operation Context に依存しない（一方向参照）
 
 ### ビジネスフローとコンテキスト
 
@@ -129,6 +151,8 @@ graph TD
 - **Tracking BC (追跡集約)** → `tracking/domain/tracking/`
 - **Tracking BC (トラッキングアプリケーション)** → `tracking/application/tracking/`
 - **Tracking BC (インフラ)** → `tracking/infrastructure/tracking/`
+- **Operation BC (SOPドメイン)** → `operation/domain/sop/`
+- **Document BC (証憑ドメイン)** → `document/domain/document/`
 
 パッケージ間の依存関係:
 ```
@@ -137,6 +161,8 @@ shared (foundation - no dependencies)
   ├─ network/domain/route (physical network)
   ├─ tracking/domain/tracking (execution tracking)
   ├─ sourcing/domain/contract (contracts & providers)
+  ├─ operation/domain/sop (SOP management)
+  ├─ document/domain/document (document management)
   └─ sourcing/domain/pricing (tariffs & calculation logic)
        ↑
        ├─ rate/domain/rate (shipper's internal rates)
@@ -151,8 +177,10 @@ shared (foundation - no dependencies)
 5. `shipment/domain/shipment`は`shared`, `network/domain/route`, `sourcing/domain/pricing`に依存
 6. `shipment/application/shipment`は`shipment/domain/shipment`, `tracking/domain/tracking`（イベント型のみ）に依存
 7. `tracking/application/tracking`は`tracking/domain/tracking`, `shared`に依存（Shipmentコンテキストには依存しない）
-8. 循環依存は禁止
-9. コンテキスト間連携はドメインイベント経由（結果整合性）
+8. `operation/domain/sop`は`shared`のみに依存
+9. `document/domain/document`は`shared`のみに依存
+10. 循環依存は禁止
+11. コンテキスト間連携はドメインイベント経由（結果整合性）
 
 ```mermaid
 classDiagram
@@ -194,6 +222,27 @@ classDiagram
         IN_TRANSIT
         EXCEPTION
         ARRIVED
+    }
+
+    class DocType["書類種別<br/>(DocType)"] {
+        <<enumeration>>
+        INVOICE
+        PACKING_LIST
+        BILL_OF_LADING
+        AIR_WAYBILL
+        ARRIVAL_NOTICE
+        CUSTOMS_DECLARATION
+        CERTIFICATE_OF_ORIGIN
+        INSURANCE_CERTIFICATE
+        BOOKING_CONFIRMATION
+        DELIVERY_ORDER
+        OTHER
+    }
+
+    class TradeDirection["貿易方向<br/>(TradeDirection)"] {
+        <<enumeration>>
+        EXPORT
+        IMPORT
     }
 
     %% ============================================
@@ -703,6 +752,139 @@ classDiagram
     }
 
     %% ============================================
+    %% SOP Definition Aggregate (SOPテンプレート集約) - operation/domain/sop
+    %% ============================================
+    namespace SOPテンプレート集約 {
+        class SOPDefinition["SOPテンプレート<br/>(SOPDefinition)"] {
+            <<Aggregate Root>>
+            ID: UUID
+            Name: String
+            Description: String
+            TargetScope: ScopeCriteria
+            steps: SOPStepDefinition[]
+            status: SOPDefinitionStatus
+            Version: Int
+            CreatedAt: Time
+            UpdatedAt: Time
+        }
+
+        class SOPDefinitionStatus["SOPテンプレートステータス<br/>(SOPDefinitionStatus)"] {
+            <<enumeration>>
+            DRAFT
+            ACTIVE
+            ARCHIVED
+        }
+
+        class SOPStepDefinition["SOPステップ定義<br/>(SOPStepDefinition)"] {
+            ID: UUID
+            Name: String
+            Description: String
+            OrderIndex: Int
+            RequiredDocTypes: DocType[]
+            GeneratedDocType: DocType
+            ActionType: ActionType
+            IsAutomatable: Bool
+        }
+
+        class ScopeCriteria["適用条件<br/>(ScopeCriteria)"] {
+            <<Value Object>>
+            Direction: TradeDirection
+            TransportMode: TransportMode
+            OriginCountryCode: String
+            DestCountryCode: String
+        }
+
+        class ActionType["アクション種別<br/>(ActionType)"] {
+            <<enumeration>>
+            DOCUMENT_UPLOAD
+            DOCUMENT_GENERATION
+            EMAIL_SEND
+            APPROVAL_REQUEST
+            EXTERNAL_API_CALL
+            MANUAL_CHECK
+        }
+    }
+
+    %% ============================================
+    %% SOP Instance Aggregate (SOPインスタンス集約) - operation/domain/sop
+    %% ============================================
+    namespace SOPインスタンス集約 {
+        class SOPInstance["SOPインスタンス<br/>(SOPInstance)"] {
+            <<Aggregate Root>>
+            ID: UUID
+            ShipmentID: UUID
+            DefinitionID: UUID
+            DefinitionName: String
+            tasks: SOPTask[]
+            status: SOPInstanceStatus
+            CreatedAt: Time
+            UpdatedAt: Time
+        }
+
+        class SOPInstanceStatus["SOPインスタンスステータス<br/>(SOPInstanceStatus)"] {
+            <<enumeration>>
+            IN_PROGRESS
+            COMPLETED
+            CANCELLED
+        }
+
+        class SOPTask["SOPタスク<br/>(SOPTask)"] {
+            ID: UUID
+            StepDefinitionID: UUID
+            Name: String
+            Description: String
+            OrderIndex: Int
+            ActionType: ActionType
+            RequiredDocTypes: DocType[]
+            GeneratedDocType: DocType
+            status: TaskStatus
+            AssigneeID: UUID
+            LinkedDocumentIDs: UUID[]
+            CompletedAt: Time
+            CompletedBy: UUID
+            Note: String
+        }
+
+        class TaskStatus["タスクステータス<br/>(TaskStatus)"] {
+            <<enumeration>>
+            PENDING
+            IN_PROGRESS
+            COMPLETED
+            SKIPPED
+            ERROR
+        }
+    }
+
+    %% ============================================
+    %% Document Aggregate (証憑集約) - document/domain/document
+    %% ============================================
+    namespace 証憑集約 {
+        class Document["証憑<br/>(Document)"] {
+            <<Aggregate Root>>
+            ID: UUID
+            ShipmentID: UUID
+            DocType: DocType
+            FileName: String
+            MimeType: String
+            StorageURI: String
+            FileSize: Int
+            UploadedBy: UUID
+            status: DocumentStatus
+            Version: Int
+            Metadata: Map
+            CreatedAt: Time
+            UpdatedAt: Time
+        }
+
+        class DocumentStatus["証憑ステータス<br/>(DocumentStatus)"] {
+            <<enumeration>>
+            DRAFT
+            CONFIRMED
+            ARCHIVED
+        }
+    }
+
+    %% ============================================
     %% Cost (費用関連)
     %% ============================================
     class EstimatedCost["見積費用<br/>(EstimatedCost)"] {
@@ -850,6 +1032,28 @@ classDiagram
     ServiceOperator "1" *-- "0..n" IntegrationChannel : 含む
     ServiceOperator ..> OperatorRole : uses
 
+    %% SOP Definition Aggregate
+    SOPDefinition "1" *-- "0..n" SOPStepDefinition : 含む
+    SOPDefinition "1" *-- "1" ScopeCriteria : 含む
+    SOPStepDefinition ..> ActionType : uses
+    SOPStepDefinition ..> DocType : uses
+    ScopeCriteria ..> TradeDirection : uses
+    ScopeCriteria ..> TransportMode : uses
+
+    %% SOP Instance Aggregate
+    SOPInstance "1" *-- "1..n" SOPTask : 含む
+    SOPInstance --> SOPDefinition : 定義参照(DefinitionID)
+    SOPInstance --> Shipment : 出荷参照(ShipmentID)
+    SOPTask --> SOPStepDefinition : ステップ定義参照(StepDefinitionID)
+    SOPTask --> Document : 書類参照(LinkedDocumentIDs)
+    SOPTask ..> TaskStatus : uses
+    SOPTask ..> ActionType : uses
+    SOPTask ..> DocType : uses
+
+    %% Document Aggregate
+    Document --> Shipment : 出荷参照(ShipmentID)
+    Document ..> DocType : uses
+
     %% Cost Relations
     EstimatedCost "1" *-- "1..n" CostLineItem : 含む
     EstimatedActualCost "1" *-- "1..n" SegmentCost : 含む
@@ -885,6 +1089,14 @@ classDiagram
     note for LogisticsResource "・レート・計画コンテキストにおける物流企業（能力とコストの提供者）<br/>・「誰が運べるか」ではなく「何を運べるか」に焦点<br/>・ProviderIDで契約コンテキストのVendorと紐づく<br/>・能力（Capability）とレート特性を持つ"
 
     note for ServiceOperator "・実行コンテキストにおける物流企業（業務の遂行者）<br/>・実務担当者、連絡先、実行役割に焦点<br/>・ProviderIDで契約コンテキストのVendorと紐づく<br/>・実行品質メトリクスとシステム連携情報を持つ"
+
+    note for SOPDefinition "・SOPテンプレート（規範: Prescriptive）<br/>・ステータス遷移: DRAFT → ACTIVE → ARCHIVED<br/>・DRAFT状態でのみステップ追加・削除・順序変更可能<br/>・ACTIVE化には1つ以上のステップが必須<br/>・ScopeCriteriaで適用対象（方向×モード×国）を指定<br/>・steps, statusフィールドはprivate"
+
+    note for SOPInstance "・Shipmentに紐付くSOPの実行インスタンス<br/>・SOPDefinitionからタスクをHydrate（コピー生成）<br/>・ステータス遷移: IN_PROGRESS → COMPLETED / CANCELLED<br/>・全タスクがCOMPLETED/SKIPPEDで自動完了<br/>・CANCELLED状態ではタスク操作不可<br/>・tasks, statusフィールドはprivate"
+
+    note for SOPTask "・タスクステータス: PENDING → IN_PROGRESS → COMPLETED/SKIPPED/ERROR<br/>・COMPLETED/SKIPPEDは不可逆（戻せない）<br/>・LinkedDocumentIDsでDocument BCの書類を参照（ID参照）<br/>・statusフィールドはprivate"
+
+    note for Document "・国際物流書類の証憑管理<br/>・ステータス遷移: DRAFT → CONFIRMED → ARCHIVED<br/>・ShipmentIDでShipment BCを参照（ID参照）<br/>・Metadataで自由属性（B/L番号等）を管理<br/>・Versionで同一Shipment・同一DocTypeの版管理<br/>・statusフィールドはprivate"
 ```
 
 ## レイヤー説明
@@ -1000,7 +1212,31 @@ classDiagram
 - **SegmentCost**: セグメント単位の費用内訳
 - **CostLineItem**: 費用明細行
 
-### 8. Logic Layer (ビジネスロジック層)
+### 8. Operation Context (SOP管理コンテキスト)
+- **SOPDefinition**: SOPテンプレート（集約ルート）
+  - 業務手順の標準定義。DRAFT→ACTIVE→ARCHIVEDのライフサイクル
+  - ScopeCriteria（貿易方向×輸送モード×国）で適用対象を指定
+  - `steps`, `status` フィールドはprivateでgetter経由でアクセス
+- **SOPStepDefinition**: SOPの各ステップ定義（エンティティ）
+  - 必要書類種別、生成書類種別、アクション種別を持つ
+  - IsAutomatable: Phase 2の自動化対象フラグ
+- **ScopeCriteria**: 適用条件（値オブジェクト）
+- **SOPInstance**: Shipmentに紐付くSOP実行インスタンス（集約ルート）
+  - SOPDefinitionからタスクをHydrate（コピー生成）
+  - IN_PROGRESS→COMPLETED/CANCELLEDのライフサイクル
+  - `tasks`, `status` フィールドはprivateでgetter経由でアクセス
+- **SOPTask**: 個別のタスク（エンティティ）
+  - PENDING→IN_PROGRESS→COMPLETED/SKIPPED/ERRORのライフサイクル
+  - LinkedDocumentIDsでDocument BCの書類をID参照
+
+### 9. Document Context (証憑管理コンテキスト)
+- **Document**: 国際物流書類（集約ルート）
+  - Shipmentに紐付く各種書類（Invoice、B/L、AWB等）を管理
+  - DRAFT→CONFIRMED→ARCHIVEDのライフサイクル
+  - Metadataで自由属性（B/L番号、Invoice番号等）を管理
+  - `status` フィールドはprivateでgetter経由でアクセス
+
+### 10. Logic Layer (ビジネスロジック層)
 - **ServiceScope**: 料金適用範囲を判定するインターフェース
 - **PricingStrategy**: 料金計算ロジックのインターフェース
 
@@ -1041,6 +1277,16 @@ classDiagram
    - **ServiceOperator** (実行コンテキスト): 業務の遂行者。実務担当者、実行品質、システム連携
    - 各モデルは`ProviderID`で契約コンテキストの`Vendor`と紐づく（Shared Kernel + ACL）
    - 同じProviderIDでも、コンテキストが異なれば関心事と属性が異なる
+
+8. **SOP管理（Standard Operating Procedures）**:
+   - SOPDefinition（テンプレート）とSOPInstance（実行インスタンス）の2集約で管理
+   - テンプレートからHydrateパターンでインスタンスを生成（定義変更が実行中タスクに影響しない）
+   - Operation BCとDocument BCは疎結合（ID参照のみ）
+
+9. **証憑管理（Document Management）**:
+   - 国際物流の各種書類をDocument集約で一元管理
+   - DocType（Shared Kernel）で書類種別を標準化
+   - SOPTaskからLinkedDocumentIDsでID参照（Operation BC → Document BC）
 
 ## ルート管理のライフサイクル
 
