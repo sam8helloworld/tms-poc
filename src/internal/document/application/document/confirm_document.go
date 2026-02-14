@@ -25,7 +25,7 @@ type ConfirmDocumentOutput struct {
 }
 
 // ConfirmDocumentUseCase: 書類確認完了ユースケース
-// DRAFT状態の書類をCONFIRMED状態に遷移させる
+// DRAFT or ISSUED状態の書類をCONFIRMED状態に遷移させる（レビューなしの直接確認）
 type ConfirmDocumentUseCase struct {
 	documentRepo domain.DocumentRepository
 }

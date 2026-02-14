@@ -17,6 +17,32 @@ func NewShipmentCreated(shipmentID uuid.UUID) ShipmentCreated {
 	}
 }
 
+// MilestoneRecorded: マイルストーン記録イベント
+type MilestoneRecorded struct {
+	shared.BaseEvent
+	MilestoneID      uuid.UUID
+	MilestoneType    MilestoneType
+	SourceDocumentID uuid.UUID
+	SourceDocType    shared.DocType
+}
+
+// NewMilestoneRecorded: MilestoneRecordedイベントを生成
+func NewMilestoneRecorded(
+	shipmentID uuid.UUID,
+	milestoneID uuid.UUID,
+	milestoneType MilestoneType,
+	sourceDocumentID uuid.UUID,
+	sourceDocType shared.DocType,
+) MilestoneRecorded {
+	return MilestoneRecorded{
+		BaseEvent:        shared.NewBaseEvent("MilestoneRecorded", shipmentID, "Shipment"),
+		MilestoneID:      milestoneID,
+		MilestoneType:    milestoneType,
+		SourceDocumentID: sourceDocumentID,
+		SourceDocType:    sourceDocType,
+	}
+}
+
 // ShipmentStatusChanged: 出荷案件ステータス変更イベント
 type ShipmentStatusChanged struct {
 	shared.BaseEvent

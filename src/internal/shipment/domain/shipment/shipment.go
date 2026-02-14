@@ -31,6 +31,10 @@ type Shipment struct {
 	// 計画情報
 	Plan ShipmentPlan
 
+	// 実行コンテキスト
+	// 書類を通じて確定した業務的事実をマイルストーンとして蓄積する
+	execution ShipmentExecution
+
 	// 追跡単位への参照 (IDのみ)
 	// 1つのShipmentが複数のコンテナ(TrackingUnit)に分かれる場合がある
 	trackingUnitIDs []uuid.UUID
@@ -70,6 +74,7 @@ func NewShipment(
 		CreatedAt:       now,
 		UpdatedAt:       now,
 		Plan:            plan,
+		execution:       newShipmentExecution(),
 		trackingUnitIDs: make([]uuid.UUID, 0),
 		status:          StatusPlanned,
 	}
@@ -193,6 +198,28 @@ type ShipmentCost struct {
 // ==========================================
 // Methods: Shipment (集約ルート)
 // ==========================================
+
+// Execution: 実行コンテキストのgetter
+func (s *Shipment) Execution() *ShipmentExecution {
+	return &s.execution
+}
+
+// RecordMilestone: マイルストーンを記録する（集約ルートを経由）
+func (s *Shipment) RecordMilestone(
+	milestoneType MilestoneType,
+	occurredAt time.Time,
+	sourceDocumentID uuid.UUID,
+	sourceDocType shared.DocType,
+	payload MilestonePayload,
+) error {
+	milestone, err := s.execution.RecordMilestone(milestoneType, occurredAt, sourceDocumentID, sourceDocType, payload)
+	if err != nil {
+		return err
+	}
+	s.UpdatedAt = time.Now()
+	s.RecordEvent(NewMilestoneRecorded(s.ID, milestone.ID, milestoneType, sourceDocumentID, sourceDocType))
+	return nil
+}
 
 // AddTrackingUnitID: TrackingUnit IDを追加
 func (s *Shipment) AddTrackingUnitID(trackingUnitID uuid.UUID) {

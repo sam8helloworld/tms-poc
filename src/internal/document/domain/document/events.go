@@ -24,6 +24,57 @@ func NewDocumentUploaded(documentID, shipmentID uuid.UUID, docType shared.DocTyp
 	}
 }
 
+// DocumentIssued: 書類発行イベント（DRAFT → ISSUED）
+type DocumentIssued struct {
+	shared.BaseEvent
+	ShipmentID uuid.UUID
+	DocType    shared.DocType
+}
+
+func NewDocumentIssued(documentID, shipmentID uuid.UUID, docType shared.DocType) DocumentIssued {
+	return DocumentIssued{
+		BaseEvent:  shared.NewBaseEvent("DocumentIssued", documentID, aggregateTypeDocument),
+		ShipmentID: shipmentID,
+		DocType:    docType,
+	}
+}
+
+// DocumentReviewSubmitted: レビュー提出イベント
+type DocumentReviewSubmitted struct {
+	shared.BaseEvent
+	ShipmentID uuid.UUID
+	DocType    shared.DocType
+	ReviewerID uuid.UUID
+	Decision   ReviewDecision
+}
+
+func NewDocumentReviewSubmitted(documentID, shipmentID uuid.UUID, docType shared.DocType, reviewerID uuid.UUID, decision ReviewDecision) DocumentReviewSubmitted {
+	return DocumentReviewSubmitted{
+		BaseEvent:  shared.NewBaseEvent("DocumentReviewSubmitted", documentID, aggregateTypeDocument),
+		ShipmentID: shipmentID,
+		DocType:    docType,
+		ReviewerID: reviewerID,
+		Decision:   decision,
+	}
+}
+
+// DocumentRevisionRequested: 修正依頼イベント
+type DocumentRevisionRequested struct {
+	shared.BaseEvent
+	ShipmentID  uuid.UUID
+	DocType     shared.DocType
+	RequestedBy uuid.UUID
+}
+
+func NewDocumentRevisionRequested(documentID, shipmentID uuid.UUID, docType shared.DocType, requestedBy uuid.UUID) DocumentRevisionRequested {
+	return DocumentRevisionRequested{
+		BaseEvent:   shared.NewBaseEvent("DocumentRevisionRequested", documentID, aggregateTypeDocument),
+		ShipmentID:  shipmentID,
+		DocType:     docType,
+		RequestedBy: requestedBy,
+	}
+}
+
 // DocumentConfirmed: 書類確認完了イベント
 type DocumentConfirmed struct {
 	shared.BaseEvent

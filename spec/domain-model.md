@@ -66,6 +66,8 @@ graph TD
     %% Downstream to Cross-cutting
     Shipment -.->|Domain Events<br/>ShipmentCreated| Operation
     Operation -->|ID Reference<br/>SOPTask.LinkedDocumentIDs| Document
+    Document -.->|Domain Events<br/>DocumentConfirmed| Shipment
+    Document -->|ID Reference<br/>ShipmentID| Shipment
 
     %% Styling
     style Network fill:#e1f5ff,stroke:#01579b,stroke-width:2px
@@ -111,6 +113,15 @@ graph TD
 #### ID Reference - Operation → Document
 - **Operation → Document**: SOPTask.LinkedDocumentIDs で書類を参照
 - Document Context は Operation Context に依存しない（一方向参照）
+
+#### Domain Events - Document → Shipment
+- **Document → Shipment**: DocumentConfirmed イベントを通じてマイルストーンを記録
+- Shipment BC のACL層が Document の構造化コンテンツから業務的事実を抽出し、MilestonePayload に変換
+- Shipment BC は Document BC の内部モデルに依存せず、独自のMilestone モデルを維持
+
+#### ID Reference - Document → Shipment
+- **Document → Shipment**: Document.ShipmentID でShipmentを参照
+- Shipment Context は Document Context に依存しない
 
 ### ビジネスフローとコンテキスト
 
@@ -589,6 +600,7 @@ classDiagram
             ShipmentNo: String
             ShipperID: UUID
             ConsigneeID: UUID
+            execution: ShipmentExecution
             trackingUnitIDs: UUID[]
             status: ShipmentStatus
             CreatedAt: Time
@@ -629,6 +641,40 @@ classDiagram
             EstimatedActualCost: EstimatedActualCost
             ActualCost: ActualCost
             IsFinalized: Bool
+        }
+
+        class ShipmentExecution["実行コンテキスト<br/>(ShipmentExecution)"] {
+            milestones: Milestone[]
+        }
+
+        class Milestone["マイルストーン<br/>(Milestone)"] {
+            <<Value Object>>
+            ID: UUID
+            Type: MilestoneType
+            OccurredAt: Time
+            RecordedAt: Time
+            SourceDocumentID: UUID
+            SourceDocType: DocType
+            Payload: MilestonePayload
+            Sequence: Int
+        }
+
+        class MilestoneType["マイルストーン種別<br/>(MilestoneType)"] {
+            <<extensible enumeration>>
+            BOOKING_CONFIRMED
+            SHIPPING_INSTRUCTION_ISSUED
+            SHIPPED
+            CUSTOMS_EXPORT_FILED
+            CUSTOMS_EXPORT_CLEARED
+            CUSTOMS_IMPORT_FILED
+            CUSTOMS_IMPORT_CLEARED
+            ARRIVED
+            DELIVERED
+            INVOICE_RECEIVED
+        }
+
+        class MilestonePayload["マイルストーンペイロード<br/>(MilestonePayload)"] {
+            <<interface>>
         }
     }
 
@@ -864,6 +910,7 @@ classDiagram
             ID: UUID
             ShipmentID: UUID
             DocType: DocType
+            Origin: DocumentOrigin
             FileName: String
             MimeType: String
             StorageURI: String
@@ -872,15 +919,55 @@ classDiagram
             status: DocumentStatus
             Version: Int
             Metadata: Map
+            content: DocumentContent
+            reviews: DocumentReview[]
             CreatedAt: Time
             UpdatedAt: Time
+        }
+
+        class DocumentOrigin["書類作成元<br/>(DocumentOrigin)"] {
+            <<enumeration>>
+            SHIPPER
+            PROVIDER
         }
 
         class DocumentStatus["証憑ステータス<br/>(DocumentStatus)"] {
             <<enumeration>>
             DRAFT
+            ISSUED
+            UNDER_REVIEW
+            REVISION_REQUESTED
             CONFIRMED
             ARCHIVED
+        }
+
+        class DocumentContent["書類コンテンツ<br/>(DocumentContent)"] {
+            <<interface>>
+        }
+
+        class DocumentReview["書類確認記録<br/>(DocumentReview)"] {
+            <<Value Object>>
+            ID: UUID
+            ReviewerID: UUID
+            ReviewedAt: Time
+            Decision: ReviewDecision
+            Comment: String
+            Discrepancies: Discrepancy[]
+        }
+
+        class ReviewDecision["確認判定<br/>(ReviewDecision)"] {
+            <<enumeration>>
+            APPROVED
+            REJECTED
+            REVISION_REQUESTED
+        }
+
+        class Discrepancy["差異<br/>(Discrepancy)"] {
+            <<Value Object>>
+            Field: String
+            Expected: String
+            Actual: String
+            Severity: DiscrepancySeverity
         }
     }
 
@@ -1012,6 +1099,11 @@ classDiagram
     Shipment "1" *-- "1" ShipmentPlan : 含む
     Shipment "1" *-- "0..n" ShipmentItem : 含む
     Shipment "1" *-- "1" ShipmentCost : 含む
+    Shipment "1" *-- "1" ShipmentExecution : 含む
+    ShipmentExecution "1" *-- "0..n" Milestone : 含む
+    Milestone ..> MilestoneType : uses
+    Milestone --> MilestonePayload : ペイロード
+    Milestone --> Document : 書類参照(SourceDocumentID)
     Shipment --> TrackingUnit : 追跡参照
     ShipmentPlan --> StandardRoute : 基準ルート参照(任意)
     ShipmentPlan --> PhysicalRoute : 計画ルート(コピー)
@@ -1053,6 +1145,11 @@ classDiagram
     %% Document Aggregate
     Document --> Shipment : 出荷参照(ShipmentID)
     Document ..> DocType : uses
+    Document ..> DocumentOrigin : uses
+    Document --> DocumentContent : コンテンツ(任意)
+    Document "1" *-- "0..n" DocumentReview : 含む
+    DocumentReview ..> ReviewDecision : uses
+    DocumentReview "1" *-- "0..n" Discrepancy : 含む
 
     %% Cost Relations
     EstimatedCost "1" *-- "1..n" CostLineItem : 含む
@@ -1076,7 +1173,11 @@ classDiagram
 
     note for Rate "・ステータス遷移: DRAFT → ACTIVE → EXPIRED<br/>・複数業者のTariffからルート単位で選択・組み合わせた社内レート<br/>・DRAFT状態: エントリ追加・削除・Tariff差し替え可能<br/>・ACTIVE状態: エントリの変更不可<br/>・entries, statusフィールドはprivate、getter経由でアクセス"
 
-    note for Shipment "・計画（PlannedRoute）の管理者<br/>・StandardRouteIDで基準とした標準ルートを追跡可能<br/>・TrackingUnitへの参照はIDのみ保持（集約境界）<br/>・ShipmentStatusはTrackingUnitの状態から導出（Derived Status）<br/>・trackingUnitIDs, status, costフィールドはprivate、getter経由でアクセス"
+    note for Shipment "・計画（PlannedRoute）の管理者<br/>・StandardRouteIDで基準とした標準ルートを追跡可能<br/>・TrackingUnitへの参照はIDのみ保持（集約境界）<br/>・ShipmentStatusはTrackingUnitの状態から導出（Derived Status）<br/>・execution: 書類を通じて確定した業務的事実をマイルストーンとして蓄積<br/>・trackingUnitIDs, status, cost, executionフィールドはprivate、getter経由でアクセス"
+
+    note for ShipmentExecution "・書類の確認を通じて確定した業務的事実を蓄積<br/>・マイルストーン型: 業務イベント単位で記録<br/>・同一MilestoneTypeで複数記録可能（履歴保持）<br/>・MilestoneTypeは拡張可能（各社独自のマイルストーンに対応）<br/>・ACL層がDocument BCの内容をMilestonePayloadに変換"
+
+    note for Milestone "・SourceDocumentIDで書類への追跡可能性を確保<br/>・Sequenceで同一Type内の時系列を管理<br/>・Payloadは型付きinterfaceで業務的事実を構造化<br/>・標準Payload: BookingConfirmed, Shipped, CustomsCleared, Arrived, Delivered, InvoiceReceived<br/>・GenericPayloadでカスタムマイルストーンにも対応"
 
     note for TrackingUnit "・実績の記録者（計画への参照を持たない）<br/>・物理的な輸送単位（コンテナ1本、トラック1台など）<br/>・TrackingSegmentが実績ルート（ActualRoute）の実体<br/>・currentStatusは全セグメントの状態から再計算<br/>・segments, currentStatusフィールドはprivate、getter経由でアクセス"
 
@@ -1096,7 +1197,11 @@ classDiagram
 
     note for SOPTask "・タスクステータス: PENDING → IN_PROGRESS → COMPLETED/SKIPPED/ERROR<br/>・COMPLETED/SKIPPEDは不可逆（戻せない）<br/>・LinkedDocumentIDsでDocument BCの書類を参照（ID参照）<br/>・statusフィールドはprivate"
 
-    note for Document "・国際物流書類の証憑管理<br/>・ステータス遷移: DRAFT → CONFIRMED → ARCHIVED<br/>・ShipmentIDでShipment BCを参照（ID参照）<br/>・Metadataで自由属性（B/L番号等）を管理<br/>・Versionで同一Shipment・同一DocTypeの版管理<br/>・statusフィールドはprivate"
+    note for Document "・国際物流書類の証憑管理<br/>・Origin: SHIPPER（荷主作成）or PROVIDER（物流業者作成）<br/>・ステータス遷移: DRAFT → ISSUED → UNDER_REVIEW → CONFIRMED → ARCHIVED<br/>・修正フロー: UNDER_REVIEW → REVISION_REQUESTED → DRAFT（再提出）<br/>・直接確認: DRAFT/ISSUED → CONFIRMED（レビュー省略可）<br/>・content: 書類タイプ別の構造化データ（DocumentContent interface）<br/>・reviews: 確認履歴（差異記録付き）<br/>・Metadataで自由属性（後方互換）<br/>・Versionで版管理（修正時にインクリメント）<br/>・status, content, reviewsフィールドはprivate"
+
+    note for DocumentContent "・書類タイプ別の構造化コンテンツ（Strategy Pattern）<br/>・InvoiceContent: ヘッダー + InvoiceLineItem[] + Extension<br/>・BillOfLadingContent: B/L固有情報 + BLContainerDetail[] + Extension<br/>・PackingListContent: 梱包明細 + PackingLineItem[] + Extension<br/>・AirWayBillContent: AWB固有情報 + Extension<br/>・ShippingInstructionContent: S/I詳細 + SILineItem[] + Extension<br/>・CustomsDeclarationContent: 通関情報 + CustomsLineItem[] + Extension<br/>・GenericContent: 汎用（Extensionのみ）<br/>・各実装のExtensionで各社固有フィールドに対応<br/>・Validate()で書類単体の整合性検証"
+
+    note for DocumentReview "・確認行為の構造化記録<br/>・Decision: APPROVED / REJECTED / REVISION_REQUESTED<br/>・Discrepancyで発見した差異を記録（フィールド、期待値、実際値、深刻度）<br/>・APPROVEDでCONFIRMEDに遷移、REJECTED/REVISION_REQUESTEDでREVISION_REQUESTEDに遷移"
 ```
 
 ## レイヤー説明
@@ -1181,13 +1286,18 @@ classDiagram
 ### 5. Shipment Aggregate (出荷案件集約)
 - **Shipment**: 出荷案件（集約ルート）
   - 荷主視点での「1つの仕事」を表現
-  - `status`, `cost`, `trackingUnitIDs` フィールドはprivateでgetter経由でアクセス
+  - `status`, `cost`, `trackingUnitIDs`, `execution` フィールドはprivateでgetter経由でアクセス
 - **ShipmentPlan**: 計画情報（エンティティ）
   - `StandardRouteID`: 基準とした標準ルートへのID参照（追跡可能性の確保）
   - `PlannedRoute`: StandardRouteからコピーされた計画値（PhysicalRoute VO）
   - `RateID`: 社内レートへの参照
 - **ShipmentItem**: 貨物明細（エンティティ）
 - **ShipmentCost**: 費用情報（エンティティ）
+- **ShipmentExecution**: 実行コンテキスト（エンティティ）
+  - 書類を通じて確定した業務的事実をマイルストーンとして蓄積
+  - MilestoneTypeは拡張可能（各社独自のマイルストーンに対応）
+  - 同一MilestoneTypeで複数記録可能（履歴保持、Sequence管理）
+  - Document BCのDocumentConfirmedイベントをACL層で受信し、Payloadに変換して記録
 
 ### 6. Tracking Aggregate (追跡集約)
 - **TrackingUnit**: 追跡単位（集約ルート）
@@ -1232,9 +1342,17 @@ classDiagram
 ### 9. Document Context (証憑管理コンテキスト)
 - **Document**: 国際物流書類（集約ルート）
   - Shipmentに紐付く各種書類（Invoice、B/L、AWB等）を管理
-  - DRAFT→CONFIRMED→ARCHIVEDのライフサイクル
-  - Metadataで自由属性（B/L番号、Invoice番号等）を管理
-  - `status` フィールドはprivateでgetter経由でアクセス
+  - Origin: 書類の作成元（SHIPPER=荷主作成、PROVIDER=物流業者作成）
+  - DRAFT→ISSUED→UNDER_REVIEW→CONFIRMED→ARCHIVEDのライフサイクル
+  - 修正フロー: UNDER_REVIEW→REVISION_REQUESTED→DRAFT（再提出、Version++）
+  - `status`, `content`, `reviews` フィールドはprivateでgetter経由でアクセス
+- **DocumentContent**: 書類タイプ別の構造化コンテンツ（interface）
+  - InvoiceContent, BillOfLadingContent, PackingListContent等の型付き実装
+  - 各実装にExtension（map[string]interface{}）で各社固有フィールドに対応
+  - Validate()で書類単体の整合性検証（Strategy Pattern）
+- **DocumentReview**: 確認記録（値オブジェクト）
+  - Decision: APPROVED/REJECTED/REVISION_REQUESTED
+  - Discrepancy: 確認時に発見した差異の記録（フィールド、期待値、実際値、深刻度）
 
 ### 10. Logic Layer (ビジネスロジック層)
 - **ServiceScope**: 料金適用範囲を判定するインターフェース
@@ -1287,6 +1405,18 @@ classDiagram
    - 国際物流の各種書類をDocument集約で一元管理
    - DocType（Shared Kernel）で書類種別を標準化
    - SOPTaskからLinkedDocumentIDsでID参照（Operation BC → Document BC）
+   - DocumentContent interfaceで書類タイプ別の構造化データを保持（Strategy Pattern）
+   - 各実装にExtensionフィールドで各社固有フィールドに対応
+   - DocumentReviewで確認行為を構造化（承認/却下/差異記録）
+   - DocumentOriginで作成元（SHIPPER/PROVIDER）を明示
+
+10. **実行コンテキスト蓄積（Execution Context Accumulation）**:
+    - ShipmentExecution がマイルストーン型で業務的事実を蓄積
+    - Document BCのDocumentConfirmedイベントをACL層で受信し、MilestonePayloadに変換
+    - MilestoneTypeは拡張可能（stringベース、各社独自のマイルストーンに対応）
+    - 同一MilestoneTypeで複数記録可能（Sequence管理、履歴保持）
+    - 蓄積されたMilestoneが次の指示書類生成の入力になる
+    - Document BCは書類の構造管理に専念、Shipment BCが業務的解釈を担当（BC間責務分離）
 
 ## ルート管理のライフサイクル
 
