@@ -6,131 +6,45 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a POC for an international logistics SCM platform that manages physical logistics networks (graph structure) and commercial flows (rates, contracts, costs) using PostgreSQL with PostGIS.
 
-## Database Architecture
+## Tech Stack
 
-### Core Data Model
-
-The database follows a two-layer architecture:
-
-1. **Physical Network Layer** - Manages logistics infrastructure:
-   - `locations`: Nodes representing ports, airports, warehouses, regions, countries. Uses hierarchical structure via `parent_location_id` (e.g., "Oi Wharf" → "Tokyo Port" → "Kanto Region")
-   - `transport_edges`: Edges connecting locations, representing physical/logical routes for routing algorithms
-
-2. **Commercial & Rates Layer** - Manages commercial transactions:
-   - `partners`: Trading partners (carriers, forwarders, trucking companies)
-   - `rate_cards`: Contract definitions (partner, route, validity period, conditions)
-   - `rate_items`: Detailed pricing with support for complex calculation logic via JSONB
-
-3. **Normalization Layer** - Standardizes charge codes:
-   - `charge_codes`: Standard internal charge codes
-   - `charge_code_mappings`: Maps external charge names to internal codes
-
-### Key Design Patterns
-
-- **JSONB for flexibility**:
-  - `locations.attributes`: Port-specific metadata (draft limits, facilities)
-  - `rate_cards.conditions`: Business rules (no hazmat, space-dependent)
-  - `rate_items.tier_matrix`: Complex tariff structures (distance-based pricing)
-
-- **Hierarchical location lookup**: When no rate exists for specific location, fall back to parent/grandparent locations
-
-- **PostGIS spatial features**: Uses `GEOMETRY(POINT)` and `GEOMETRY(LINESTRING)` for geospatial queries
-
-- **DATERANGE for validity**: Efficiently query rates valid for specific periods using `&&` operator
+- **Language**: Go 1.24
+- **Database**: PostgreSQL 16 + PostGIS 3.4
+- **DB Driver**: pgx/v5 (pgxpool)
+- **Migration**: golang-migrate (Up/Down SQL)
+- **Query**: sqlc
+- **Container**: Docker Compose
 
 ## Common Commands
 
-### Database Management
+All Makefile targets are in `src/Makefile` (run from `src/` directory):
 
-Start database:
 ```bash
-docker compose up -d
-```
+# Build
+cd src && go build ./...
 
-Stop database:
-```bash
-docker compose down
-```
+# Docker
+cd src && make docker-up      # Start PostgreSQL
+cd src && make docker-down    # Stop PostgreSQL
 
-Stop and remove volumes (re-applies init scripts):
-```bash
-docker compose down -v
-```
+# Migration
+cd src && make migrate-up     # Apply all migrations
+cd src && make migrate-down   # Rollback all migrations
+cd src && make migrate-create # Create new migration (prompts for name)
 
-Check database status:
-```bash
-docker compose ps
-docker compose logs postgres
+# Code Generation
+cd src && make sqlc-generate  # Generate Go code from SQL queries
 ```
 
 ### Connecting to Database
 
-Via psql in container:
 ```bash
 docker compose exec postgres psql -U postgres -d tms_db
-```
-
-Via psql from host:
-```bash
+# or from host:
 psql -h localhost -p 5432 -U postgres -d tms_db
 ```
 
 Default credentials: `postgres/postgres` for database `tms_db`
-
-### Running SQL Files
-
-Using helper script (recommended):
-```bash
-./run-sql.sh path/to/file.sql
-```
-
-Direct execution:
-```bash
-docker compose exec -T postgres psql -U postgres -d tms_db < path/to/file.sql
-```
-
-### Initialization Scripts
-
-SQL files in `init/` directory are executed automatically on first container startup (when data volume is empty). Execution order:
-1. `001_create_graph_tables.sql` - Creates extensions, ENUM types, locations, transport_edges
-2. `002_create_rate_table.sql` - Creates partners, rate_cards, rate_items
-3. `003_create_charge_mapping_table.sql` - Creates charge_codes, charge_code_mappings
-
-To re-apply init scripts, use `docker compose down -v && docker compose up -d`
-
-## Database Schema Details
-
-### ENUM Types
-
-- `location_type`: PORT, AIRPORT, RAIL_YARD, WAREHOUSE, FACTORY, REGION, COUNTRY, CITY
-- `transport_mode`: OCEAN_FCL, OCEAN_LCL, AIR, TRUCK, RAIL, BARGE
-- `currency_code`: USD, JPY, EUR, CNY
-- `charge_unit`: PER_CONTAINER, PER_SHIPMENT, PER_KG, PER_M3
-- `container_type`: 20DC, 40DC, 40HC, LCL, BULK
-- `charge_category`: FREIGHT_BASIC, SURCHARGE_FUEL, SURCHARGE_CCY, ORIGIN_LOCAL, DEST_LOCAL, DUTY_TAX
-
-### Important Indexes
-
-- `locations`: UN/LOCODE lookup, parent hierarchy, spatial (GIST) for geom
-- `transport_edges`: Source/target lookups, composite for routing
-- `rate_cards`: Origin/dest/partner composite, validity (GIST) for date ranges
-- `charge_code_mappings`: Partner/input_text for fast lookup during data import
-
-## Development Notes
-
-When working with rate calculations, `tier_matrix` JSONB structure for distance-based pricing:
-```json
-{
-  "logic": "step",
-  "steps": [
-    {"max_km": 10, "price": 18060},
-    {"max_km": 20, "price": 20160}
-  ],
-  "over_max_rule": {"unit_km": 20, "add_price": 4140}
-}
-```
-
-The `calculation_type` field in `rate_items` can be: FIXED, DISTANCE_TIER, WEIGHT_TIER, PERCENTAGE
 
 ## Domain Model
 
@@ -138,19 +52,34 @@ The `calculation_type` field in `rate_items` can be: FIXED, DISTANCE_TIER, WEIGH
 
 The domain model follows Domain-Driven Design (DDD) principles organized by Bounded Contexts:
 
-- **Shared Kernel** (`src/internal/shared/`): Common value objects (Money, DateRange, TransportMode, LocationType)
-- **Network BC** (`src/internal/network/domain/route/`): Physical network modeling (Location, Lane, PhysicalRoute, RouteSegment, StandardRoute)
+- **Shared Kernel** (`src/internal/shared/`): Common value objects (Money, DateRange, TransportMode, LocationType, DocType, TradeDirection)
+- **Network BC** (`src/internal/network/`): Physical network modeling
+  - `domain/route/`: Location, Lane, PhysicalRoute, RouteSegment, StandardRoute
+  - `infrastructure/persistence/`: PostgresLocationRepo, PostgresLaneRepo, PostgresStandardRouteRepo
 - **Sourcing BC** (`src/internal/sourcing/`): Contracts and pricing
   - `domain/contract/`: ServiceContract, Vendor (LogisticsProvider)
   - `domain/pricing/`: Tariff, TariffLineItem, ServiceScope, PricingStrategy, ShipmentContext
   - `application/bid/`: Bid use cases (CreateBidContract, DeleteContract, UpdateContractPeriod)
   - `application/tariff/`: Tariff use cases (RegisterTariff, AmendTariff, AddTariffVersion, RemoveTariff)
   - `infrastructure/parser/`: TariffParser
+  - `infrastructure/persistence/`: PostgresVendorRepo, PostgresContractRepo, PostgresTariffRepo
 - **Rate Management BC** (`src/internal/rate/`): Shipper's internal rates
   - `domain/rate/`: Rate, RateEntry, LogisticsResource
   - `application/rate/`: Rate use cases (ApplyContractToRate, UpdateRateEntryTariff)
-- **Shipment BC** (`src/internal/shipment/domain/shipment/`): Shipment execution (Shipment, ShipmentPlan, ShipmentCost)
-- **Tracking BC** (`src/internal/tracking/domain/tracking/`): Execution tracking (TrackingUnit, TrackingSegment, ServiceOperator)
+  - `infrastructure/persistence/`: PostgresRateRepo
+- **Shipment BC** (`src/internal/shipment/`): Shipment execution
+  - `domain/shipment/`: Shipment, ShipmentPlan, ShipmentCost, ShipmentExecution, Milestone
+  - `infrastructure/persistence/`: PostgresShipmentRepo
+- **Tracking BC** (`src/internal/tracking/`): Execution tracking
+  - `domain/tracking/`: TrackingUnit, TrackingSegment, ServiceOperator
+  - `infrastructure/persistence/`: PostgresTrackingUnitRepo
+- **Operation BC** (`src/internal/operation/`): SOP management
+  - `domain/sop/`: SOPDefinition, SOPInstance, SOPTask
+  - `infrastructure/persistence/`: PostgresSOPDefinitionRepo, PostgresSOPInstanceRepo
+- **Document BC** (`src/internal/document/`): Document management
+  - `domain/document/`: Document, DocumentContent, DocumentReview
+  - `application/document/`: UploadDocument, ExtractContent, ConfirmDocument
+  - `infrastructure/persistence/`: PostgresDocumentRepo
 
 Domain model source code is located in `src/internal/`.
 
@@ -166,9 +95,14 @@ The current domain model is documented in Mermaid format at `spec/domain-model.m
 2. Update **BOTH diagrams** in `spec/domain-model.md`:
    - **Context Map**: Update when adding/removing Bounded Contexts, changing aggregates, or modifying relationships between contexts
    - **Detailed Class Diagram**: Update when modifying entities, value objects, attributes, or relationships
-3. Ensure both diagrams accurately represent the current architecture and design
+3. If the change affects DB schema (new table/column, type change, new relationship, new ENUM value, etc.), create a new migration file via `cd src && make migrate-create` and update:
+   - Migration SQL (`src/db/migrations/`)
+   - sqlc query SQL (`src/db/queries/`)
+   - Repository implementation (`src/internal/{bc}/infrastructure/persistence/`)
+   - Reconstruct function if private fields changed (`src/internal/{bc}/domain/{aggregate}/reconstruct.go`)
+4. Ensure all diagrams, DB schema, and code accurately represent the current architecture and design
 
-The diagrams should be kept in sync with the codebase to serve as living documentation.
+The diagrams, DB schema, and code should be kept in sync to serve as living documentation.
 
 #### Domain Model Diagram Style Guide
 
@@ -225,3 +159,45 @@ ServiceContract --> LogisticsProvider : 業者参照
 
 note for ServiceContract "・ステータス遷移: DRAFT → CONTRACTED<br/>・status, tariffsフィールドはprivate"
 ```
+
+## Database Architecture
+
+### Migration Management
+
+Migrations are managed by golang-migrate in `src/db/migrations/`. Each migration has an up and down SQL file.
+
+| # | Migration | Tables |
+|---|-----------|--------|
+| 000001 | extensions | uuid-ossp, postgis |
+| 000002 | network_locations_lanes | locations, lanes |
+| 000003 | network_standard_routes | standard_routes, standard_route_legs |
+| 000004 | sourcing_vendors | vendors |
+| 000005 | sourcing_contracts_tariffs | service_contracts, tariffs, tariff_line_items |
+| 000006 | rate_management | rates, rate_entries, logistics_resources |
+| 000007 | shipments | shipments + 6 child tables (segments, items, tracking_units, milestones, cost_line_items, cost_summaries) |
+| 000008 | tracking | tracking_units, tracking_segments, tracking_events, service_operators |
+| 000009 | operation_sop | sop_definitions, sop_step_definitions, sop_instances, sop_tasks |
+| 000010 | documents | documents, document_reviews |
+| 000011 | domain_events | domain_events (outbox) |
+
+### Key DB Design Patterns
+
+- **Aggregate boundary = transaction boundary**: Each Repository.Save() uses a single transaction
+- **Cross-aggregate references**: ID reference only, no foreign keys between aggregates
+- **Intra-aggregate CASCADE**: Child tables use `ON DELETE CASCADE` to parent
+- **JSONB for polymorphic/denormalized data**: vendor capabilities/contacts, tariff scope/logic, document content, milestone payload, SOP linked_document_ids, service operator contacts/metrics/channels, logistics resource capabilities
+- **Normalized child tables for high-volume/queryable data**: tariff_line_items, tracking_events, shipment_milestones, document_reviews, rate_entries
+- **Upsert pattern**: `INSERT ON CONFLICT DO UPDATE` for idempotent Save
+- **Append-only pattern**: `ON CONFLICT DO NOTHING` for events, milestones, reviews
+- **Domain Event Outbox**: `domain_events` table for transactional outbox pattern
+
+### sqlc Queries
+
+Query definitions are in `src/db/queries/`. After modifying queries, run `cd src && make sqlc-generate`.
+
+### Repository Implementation Conventions
+
+- Location: `src/internal/{bc}/infrastructure/persistence/postgres_{aggregate}_repo.go`
+- Constructor: `NewPostgres{Aggregate}Repo(pool *pgxpool.Pool)`
+- Reconstruct functions: `src/internal/{bc}/domain/{aggregate}/reconstruct.go` — bypasses domain validation for DB reconstruction of aggregates with private fields
+- Common infrastructure: `src/pkg/postgres/` (pool.go, tx_manager.go)

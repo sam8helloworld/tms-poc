@@ -1,26 +1,19 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgis/postgis:16-3.4
     container_name: tms-postgres
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-tms_db}
-      TZ: 'Asia/Tokyo'
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: tms_db
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init:/docker-entrypoint-initdb.d
-    restart: unless-stopped
+      - tms-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tms_db"]
+      interval: 5s
       retries: 5
 
 volumes:
-  postgres_data:
-    driver: local
+  tms-data:
