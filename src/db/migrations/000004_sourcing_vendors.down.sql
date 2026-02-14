@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS vendors;
+DROP TYPE IF EXISTS provider_type;

@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS shipment_cost_summaries;
+DROP TABLE IF EXISTS shipment_cost_line_items;
+DROP TABLE IF EXISTS shipment_milestones;
+DROP TABLE IF EXISTS shipment_tracking_units;
+DROP TABLE IF EXISTS shipment_items;
+DROP TABLE IF EXISTS shipment_planned_route_segments;
+DROP TABLE IF EXISTS shipments;
+DROP TYPE IF EXISTS cost_category;
+DROP TYPE IF EXISTS shipment_status;

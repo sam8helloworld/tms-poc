@@ -1,0 +1,4 @@
+DROP TABLE IF EXISTS lanes;
+DROP TABLE IF EXISTS locations;
+DROP TYPE IF EXISTS transport_mode;
+DROP TYPE IF EXISTS location_type;
