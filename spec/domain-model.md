@@ -945,6 +945,10 @@ classDiagram
             <<interface>>
         }
 
+        class DocumentContentExtractor["書類コンテンツ抽出<br/>(DocumentContentExtractor)"] {
+            <<interface>>
+        }
+
         class DocumentReview["書類確認記録<br/>(DocumentReview)"] {
             <<Value Object>>
             ID: UUID
@@ -1147,6 +1151,7 @@ classDiagram
     Document ..> DocType : uses
     Document ..> DocumentOrigin : uses
     Document --> DocumentContent : コンテンツ(任意)
+    DocumentContentExtractor ..> DocumentContent : 抽出
     Document "1" *-- "0..n" DocumentReview : 含む
     DocumentReview ..> ReviewDecision : uses
     DocumentReview "1" *-- "0..n" Discrepancy : 含む
@@ -1197,7 +1202,9 @@ classDiagram
 
     note for SOPTask "・タスクステータス: PENDING → IN_PROGRESS → COMPLETED/SKIPPED/ERROR<br/>・COMPLETED/SKIPPEDは不可逆（戻せない）<br/>・LinkedDocumentIDsでDocument BCの書類を参照（ID参照）<br/>・statusフィールドはprivate"
 
-    note for Document "・国際物流書類の証憑管理<br/>・Origin: SHIPPER（荷主作成）or PROVIDER（物流業者作成）<br/>・ステータス遷移: DRAFT → ISSUED → UNDER_REVIEW → CONFIRMED → ARCHIVED<br/>・修正フロー: UNDER_REVIEW → REVISION_REQUESTED → DRAFT（再提出）<br/>・直接確認: DRAFT/ISSUED → CONFIRMED（レビュー省略可）<br/>・content: 書類タイプ別の構造化データ（DocumentContent interface）<br/>・reviews: 確認履歴（差異記録付き）<br/>・Metadataで自由属性（後方互換）<br/>・Versionで版管理（修正時にインクリメント）<br/>・status, content, reviewsフィールドはprivate"
+    note for Document "・国際物流書類の証憑管理<br/>・Origin: SHIPPER（荷主作成）or PROVIDER（物流業者作成）<br/>・ステータス遷移: DRAFT → ISSUED → UNDER_REVIEW → CONFIRMED → ARCHIVED<br/>・修正フロー: UNDER_REVIEW → REVISION_REQUESTED → DRAFT（再提出）<br/>・直接確認: DRAFT/ISSUED → CONFIRMED（レビュー省略可）<br/>・content: 書類タイプ別の構造化データ（DocumentContent interface）<br/>・構造化処理: DocumentContentExtractor（DIP、Infrastructure層で実装）<br/>・アップロードと構造化は別UseCase（非同期処理対応）<br/>・reviews: 確認履歴（差異記録付き）<br/>・Metadataで自由属性（後方互換）<br/>・Versionで版管理（修正時にインクリメント）<br/>・status, content, reviewsフィールドはprivate"
+
+    note for DocumentContentExtractor "・Domain層で定義、Infrastructure層で実装（DIP）<br/>・storageURIとDocTypeを受け取りDocumentContentを返す<br/>・実装例: AI OCR、ルールベースパーサー等<br/>・TariffParser（Sourcing BC）と同様のACLパターン"
 
     note for DocumentContent "・書類タイプ別の構造化コンテンツ（Strategy Pattern）<br/>・InvoiceContent: ヘッダー + InvoiceLineItem[] + Extension<br/>・BillOfLadingContent: B/L固有情報 + BLContainerDetail[] + Extension<br/>・PackingListContent: 梱包明細 + PackingLineItem[] + Extension<br/>・AirWayBillContent: AWB固有情報 + Extension<br/>・ShippingInstructionContent: S/I詳細 + SILineItem[] + Extension<br/>・CustomsDeclarationContent: 通関情報 + CustomsLineItem[] + Extension<br/>・GenericContent: 汎用（Extensionのみ）<br/>・各実装のExtensionで各社固有フィールドに対応<br/>・Validate()で書類単体の整合性検証"
 

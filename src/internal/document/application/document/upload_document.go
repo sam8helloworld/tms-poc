@@ -20,7 +20,6 @@ type UploadDocumentInput struct {
 	FileSize   int64
 	UploadedBy uuid.UUID
 	Metadata   map[string]string        // 任意のメタデータ（後方互換）
-	Content    domain.DocumentContent    // 構造化コンテンツ（任意）
 }
 
 // UploadDocumentOutput: 書類アップロードの出力
@@ -69,25 +68,18 @@ func (uc *UploadDocumentUseCase) Execute(
 		return nil, NewDocumentUseCaseError("INVALID_INPUT", err.Error())
 	}
 
-	// 2. 構造化コンテンツの設定（任意）
-	if input.Content != nil {
-		if err := doc.SetContent(input.Content); err != nil {
-			return nil, NewDocumentUseCaseError("INVALID_CONTENT", err.Error())
-		}
-	}
-
-	// 3. メタデータの設定
+	// 2. メタデータの設定
 	for key, value := range input.Metadata {
 		doc.UpdateMetadata(key, value)
 	}
 
-	// 4. 永続化
+	// 3. 永続化
 	if err := uc.documentRepo.Save(ctx, doc); err != nil {
 		return nil, NewDocumentUseCaseError("SAVE_ERROR", "failed to save document").
 			WithDetail("documentID", doc.ID)
 	}
 
-	// 5. 出力DTOの作成
+	// 4. 出力DTOの作成
 	return &UploadDocumentOutput{
 		DocumentID: doc.ID,
 		ShipmentID: doc.ShipmentID,

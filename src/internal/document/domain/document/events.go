@@ -90,6 +90,21 @@ func NewDocumentConfirmed(documentID, shipmentID uuid.UUID, docType shared.DocTy
 	}
 }
 
+// DocumentContentExtracted: 書類コンテンツ抽出完了イベント
+type DocumentContentExtracted struct {
+	shared.BaseEvent
+	ShipmentID uuid.UUID
+	DocType    shared.DocType
+}
+
+func NewDocumentContentExtracted(documentID, shipmentID uuid.UUID, docType shared.DocType) DocumentContentExtracted {
+	return DocumentContentExtracted{
+		BaseEvent:  shared.NewBaseEvent("DocumentContentExtracted", documentID, aggregateTypeDocument),
+		ShipmentID: shipmentID,
+		DocType:    docType,
+	}
+}
+
 // DocumentArchived: 書類アーカイブイベント
 type DocumentArchived struct {
 	shared.BaseEvent
