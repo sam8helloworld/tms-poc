@@ -98,6 +98,24 @@ var contractUpdatePeriodCmd = &cobra.Command{
 	},
 }
 
+var contractAwardCmd = &cobra.Command{
+	Use:   "award",
+	Short: "Award a DRAFT contract (DRAFT → CONTRACTED)",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		contractID, _ := cmd.Flags().GetString("contract-id")
+
+		input := bid.AwardBidContractInput{
+			ContractID: uuid.MustParse(contractID),
+		}
+
+		output, err := deps.AwardBidContractUC.Execute(context.Background(), input)
+		if err != nil {
+			return err
+		}
+		return printJSON(output)
+	},
+}
+
 var contractGetCmd = &cobra.Command{
 	Use:   "get [id]",
 	Short: "Get a contract by ID",
@@ -150,9 +168,13 @@ func init() {
 	contractListCmd.Flags().String("shipper-id", "", "Shipper UUID")
 	contractListCmd.MarkFlagRequired("shipper-id")
 
+	contractAwardCmd.Flags().String("contract-id", "", "Contract UUID")
+	contractAwardCmd.MarkFlagRequired("contract-id")
+
 	contractCmd.AddCommand(contractCreateCmd)
 	contractCmd.AddCommand(contractDeleteCmd)
 	contractCmd.AddCommand(contractUpdatePeriodCmd)
+	contractCmd.AddCommand(contractAwardCmd)
 	contractCmd.AddCommand(contractGetCmd)
 	contractCmd.AddCommand(contractListCmd)
 }

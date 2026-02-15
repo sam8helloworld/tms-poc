@@ -41,15 +41,19 @@ import (
 // Dependencies: 全リポジトリ・UseCase・QueryServiceの依存コンテナ
 type Dependencies struct {
 	// UseCases - Sourcing
-	CreateBidContractUC *bidapp.CreateBidContractUseCase
-	DeleteBidContractUC *bidapp.DeleteBidContractUseCase
+	CreateBidContractUC    *bidapp.CreateBidContractUseCase
+	DeleteBidContractUC    *bidapp.DeleteBidContractUseCase
 	UpdateContractPeriodUC *bidapp.UpdateContractPeriodUseCase
-	RegisterTariffUC    *tariffapp.RegisterTariffUseCase
-	AmendTariffUC       *tariffapp.AmendContractTariffUseCase
-	AddTariffVersionUC  *tariffapp.AddTariffVersionUseCase
-	RemoveTariffUC      *tariffapp.RemoveTariffFromContractUseCase
+	AwardBidContractUC     *bidapp.AwardBidContractUseCase
+	RegisterTariffUC       *tariffapp.RegisterTariffUseCase
+	RegisterTariffDirectUC *tariffapp.RegisterTariffDirectUseCase
+	AmendTariffUC          *tariffapp.AmendContractTariffUseCase
+	AddTariffVersionUC     *tariffapp.AddTariffVersionUseCase
+	RemoveTariffUC         *tariffapp.RemoveTariffFromContractUseCase
 
 	// UseCases - Rate
+	CreateRateUC             *rateapp.CreateRateUseCase
+	ActivateRateUC           *rateapp.ActivateRateUseCase
 	ApplyContractToRateUC    *rateapp.ApplyContractToRateUseCase
 	UpdateRateEntryTariffUC  *rateapp.UpdateRateEntryTariffUseCase
 
@@ -103,15 +107,19 @@ func NewDependencies(pool *pgxpool.Pool) *Dependencies {
 
 	return &Dependencies{
 		// Sourcing UseCases
-		CreateBidContractUC:  bidapp.NewCreateBidContractUseCase(contractRepo),
-		DeleteBidContractUC:  bidapp.NewDeleteBidContractUseCase(contractRepo),
+		CreateBidContractUC:    bidapp.NewCreateBidContractUseCase(contractRepo),
+		DeleteBidContractUC:    bidapp.NewDeleteBidContractUseCase(contractRepo),
 		UpdateContractPeriodUC: bidapp.NewUpdateContractPeriodUseCase(contractRepo, tariffRepo),
-		RegisterTariffUC:     tariffapp.NewRegisterTariffUseCase(parserFactory, validator, tariffRepo, contractRepo),
-		AmendTariffUC:        tariffapp.NewAmendContractTariffUseCase(contractRepo, tariffRepo, parserFactory),
-		AddTariffVersionUC:   tariffapp.NewAddTariffVersionUseCase(contractRepo, tariffRepo, parserFactory),
-		RemoveTariffUC:       tariffapp.NewRemoveTariffFromContractUseCase(contractRepo, tariffRepo),
+		AwardBidContractUC:     bidapp.NewAwardBidContractUseCase(contractRepo, tariffRepo),
+		RegisterTariffUC:       tariffapp.NewRegisterTariffUseCase(parserFactory, validator, tariffRepo, contractRepo),
+		RegisterTariffDirectUC: tariffapp.NewRegisterTariffDirectUseCase(tariffRepo, contractRepo),
+		AmendTariffUC:          tariffapp.NewAmendContractTariffUseCase(contractRepo, tariffRepo, parserFactory),
+		AddTariffVersionUC:     tariffapp.NewAddTariffVersionUseCase(contractRepo, tariffRepo, parserFactory),
+		RemoveTariffUC:         tariffapp.NewRemoveTariffFromContractUseCase(contractRepo, tariffRepo),
 
 		// Rate UseCases
+		CreateRateUC:            rateapp.NewCreateRateUseCase(rateRepo),
+		ActivateRateUC:          rateapp.NewActivateRateUseCase(rateRepo),
 		ApplyContractToRateUC:   rateapp.NewApplyContractToRateUseCase(rateRepo, contractRepo, tariffRepo),
 		UpdateRateEntryTariffUC: rateapp.NewUpdateRateEntryTariffUseCase(rateRepo, contractRepo, tariffRepo),
 

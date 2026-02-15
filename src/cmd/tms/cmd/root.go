@@ -71,6 +71,8 @@ func init() {
 	rootCmd.AddCommand(sopDefinitionCmd)
 	rootCmd.AddCommand(sopInstanceCmd)
 	rootCmd.AddCommand(eventCmd)
+	rootCmd.AddCommand(scenarioCmd)
+	rootCmd.AddCommand(dbCmd)
 }
 
 func Execute() error {
