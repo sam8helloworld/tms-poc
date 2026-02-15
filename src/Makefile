@@ -1,7 +1,7 @@
 DATABASE_URL ?= postgres://postgres:postgres@localhost:5432/tms_db?sslmode=disable
 MIGRATIONS_DIR := db/migrations
 
-.PHONY: docker-up docker-down migrate-up migrate-down migrate-create sqlc-generate build
+.PHONY: docker-up docker-down migrate-up migrate-down migrate-create sqlc-generate build build-cli run-cli
 
 docker-up:
 	cd .. && docker compose up -d
@@ -24,3 +24,9 @@ sqlc-generate:
 
 build:
 	go build ./...
+
+build-cli:
+	go build -o bin/tms ./cmd/tms
+
+run-cli:
+	go run ./cmd/tms $(ARGS)

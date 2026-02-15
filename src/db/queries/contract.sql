@@ -15,6 +15,9 @@ WHERE provider_id = $1 AND shipper_id = $2 AND status = 'CONTRACTED'
   AND valid_from <= $3 AND valid_to >= $3
 ORDER BY created_at DESC;
 
+-- name: ListContractsByShipper :many
+SELECT * FROM service_contracts WHERE shipper_id = $1 ORDER BY created_at DESC;
+
 -- name: InsertContract :exec
 INSERT INTO service_contracts (id, provider_id, shipper_id, status, valid_from, valid_to, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8);

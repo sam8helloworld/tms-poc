@@ -17,19 +17,11 @@ import (
 // RegisterTariffUseCase: 料金表登録ユースケース
 // 入札プロセスにおいて、物流企業から受け取った料金表（PDFやExcel）を解析し、
 // 契約（DRAFT状態）に登録する処理を担当する
-//
-// 処理の流れ:
-// 1. 既存のDRAFT契約を取得、または新規作成
-// 2. ファイルを解析してTariffドメインモデルに変換
-// 3. 契約にTariffを追加または更新
-// 4. 契約を永続化
 type RegisterTariffUseCase struct {
 	parserFactory pricing.TariffParserFactory
 	validator     pricing.TariffDataValidator
-
-	// 本来利用すべきリポジトリ（コメントアウト）
-	// contractRepo contract.ServiceContractRepository
-	tariffRepo pricing.TariffRepository
+	contractRepo  contract.ServiceContractRepository
+	tariffRepo    pricing.TariffRepository
 }
 
 // NewRegisterTariffUseCase: RegisterTariffUseCaseのコンストラクタ
@@ -37,13 +29,13 @@ func NewRegisterTariffUseCase(
 	parserFactory pricing.TariffParserFactory,
 	validator pricing.TariffDataValidator,
 	tariffRepo pricing.TariffRepository,
-	// contractRepo contract.ServiceContractRepository,
+	contractRepo contract.ServiceContractRepository,
 ) *RegisterTariffUseCase {
 	return &RegisterTariffUseCase{
 		parserFactory: parserFactory,
 		validator:     validator,
 		tariffRepo:    tariffRepo,
-		// contractRepo:  contractRepo,
+		contractRepo:  contractRepo,
 	}
 }
 
@@ -58,7 +50,7 @@ func (uc *RegisterTariffUseCase) Execute(
 	}
 
 	// 2. 契約の取得または新規作成
-	contract, isNewContract, err := uc.getOrCreateContract(ctx, input)
+	c, isNewContract, err := uc.getOrCreateContract(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -78,36 +70,36 @@ func (uc *RegisterTariffUseCase) Execute(
 	}
 
 	// 5. ドメインモデルへの変換
-	tariff, err := uc.convertToTariff(parsedData, contract.ID)
+	tariff, err := uc.convertToTariff(parsedData, c.ID)
 	if err != nil {
 		return nil, NewRegisterTariffError("CONVERSION_ERROR", err.Error())
 	}
 
-	// 6. 重複チェック（コメントアウト）
-	// existingTariffs, _ := uc.tariffRepo.FindByContractID(ctx, contract.ID)
-	// isUpdated := uc.tariffExistsInList(existingTariffs, tariff)
-	isUpdated := false
+	// 6. 重複チェック
+	existingTariffs, _ := uc.tariffRepo.FindByContractID(ctx, c.ID)
+	isUpdated := uc.tariffExistsInList(existingTariffs, tariff)
 
-	// 7. Tariffを永続化（コメントアウト）
+	// 7. Tariffを永続化
 	if err := uc.tariffRepo.Save(ctx, tariff); err != nil {
 		return nil, NewRegisterTariffError("SAVE_ERROR", err.Error()).
 			WithDetail("tariffID", tariff.ID)
 	}
 
-	// 8. 契約を永続化（コメントアウト）
-	// if err := uc.contractRepo.Save(ctx, contract); err != nil {
-	// 	return nil, NewRegisterTariffError("SAVE_ERROR", err.Error()).
-	// 		WithDetail("contractID", contract.ID)
-	// }
+	// 8. 新規契約の場合は契約を永続化
+	if isNewContract {
+		if err := uc.contractRepo.Save(ctx, c); err != nil {
+			return nil, NewRegisterTariffError("SAVE_ERROR", err.Error()).
+				WithDetail("contractID", c.ID)
+		}
+	}
 
-	// 9. Tariff件数取得（コメントアウト）
-	// totalTariffCount, _ := uc.tariffRepo.CountByContractID(ctx, contract.ID)
-	totalTariffCount := 1
+	// 9. Tariff件数取得
+	totalTariffCount, _ := uc.tariffRepo.CountByContractID(ctx, c.ID)
 
 	// 10. 出力DTOの作成
 	output := &RegisterTariffOutput{
-		ContractID:       contract.ID,
-		ContractStatus:   string(contract.Status()),
+		ContractID:       c.ID,
+		ContractStatus:   string(c.Status()),
 		TariffID:         tariff.ID,
 		TariffName:       tariff.Name,
 		EffectiveFrom:    tariff.EffectiveDate.From,
@@ -160,38 +152,21 @@ func (uc *RegisterTariffUseCase) getOrCreateContract(
 ) (*contract.ServiceContract, bool, error) {
 	// 既存の契約IDが指定されている場合は取得
 	if input.ContractID != nil {
-		// contract, err := uc.contractRepo.FindByID(ctx, *input.ContractID)
-		// if err != nil {
-		// 	return nil, false, NewRegisterTariffError("CONTRACT_NOT_FOUND", "contract not found").
-		// 		WithDetail("contractID", *input.ContractID)
-		// }
-		// if contract == nil {
-		// 	return nil, false, NewRegisterTariffError("CONTRACT_NOT_FOUND", "contract does not exist").
-		// 		WithDetail("contractID", *input.ContractID)
-		// }
-		// if !contract.IsDraft() {
-		// 	return nil, false, NewRegisterTariffError("CONTRACT_NOT_DRAFT", "contract is not in DRAFT status").
-		// 		WithDetail("contractID", *input.ContractID).
-		// 		WithDetail("status", string(contract.Status))
-		// }
-		// return contract, false, nil
-
-		// コメントアウト中のため、ダミーのDRAFT契約を返す
-		contract, err := contract.NewServiceContract(
-			input.ProviderID,
-			input.ShipperID,
-			*input.ContractValidFrom,
-			*input.ContractValidTo,
-		)
+		c, err := uc.contractRepo.FindByID(ctx, *input.ContractID)
 		if err != nil {
-			return nil, false, NewRegisterTariffError("CONTRACT_CREATE_ERROR", err.Error())
+			return nil, false, NewRegisterTariffError("CONTRACT_NOT_FOUND", "contract not found").
+				WithDetail("contractID", *input.ContractID)
 		}
-		contract.ID = *input.ContractID
-		return contract, false, nil
+		if !c.IsDraft() {
+			return nil, false, NewRegisterTariffError("CONTRACT_NOT_DRAFT", "contract is not in DRAFT status").
+				WithDetail("contractID", *input.ContractID).
+				WithDetail("status", string(c.Status()))
+		}
+		return c, false, nil
 	}
 
 	// 新規契約を作成（DRAFT状態）
-	contract, err := contract.NewServiceContract(
+	c, err := contract.NewServiceContract(
 		input.ProviderID,
 		input.ShipperID,
 		*input.ContractValidFrom,
@@ -201,7 +176,7 @@ func (uc *RegisterTariffUseCase) getOrCreateContract(
 		return nil, false, NewRegisterTariffError("CONTRACT_CREATE_ERROR", err.Error())
 	}
 
-	return contract, true, nil
+	return c, true, nil
 }
 
 // tariffExistsInList: Tariffリスト内に同じTariffが存在するかチェック
@@ -221,19 +196,16 @@ func (uc *RegisterTariffUseCase) tariffExistsInList(
 
 // parseFile: ファイルを解析
 func (uc *RegisterTariffUseCase) parseFile(input RegisterTariffInput) (*pricing.ParsedTariffData, error) {
-	// パーサーを取得
 	p, err := uc.parserFactory.GetParser(input.FileFormat)
 	if err != nil {
 		return nil, fmt.Errorf("unsupported file format: %s", input.FileFormat)
 	}
 
-	// ファイルを解析
 	parsedData, err := p.Parse(input.FileReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse file: %w", err)
 	}
 
-	// オーバーライド処理
 	if input.OverrideTariffName != nil {
 		parsedData.TariffName = *input.OverrideTariffName
 	}
@@ -261,7 +233,6 @@ func (uc *RegisterTariffUseCase) convertToTariff(
 	data *pricing.ParsedTariffData,
 	contractID uuid.UUID,
 ) (*pricing.Tariff, error) {
-	// Tariff生成（独立した集約ルートとしてContractIDで契約を参照）
 	tariff, err := pricing.NewTariff(
 		data.TariffName,
 		contractID,
@@ -272,7 +243,6 @@ func (uc *RegisterTariffUseCase) convertToTariff(
 		return nil, fmt.Errorf("failed to create tariff: %w", err)
 	}
 
-	// LineItemsの変換と追加
 	for i, parsedItem := range data.LineItems {
 		lineItem, err := uc.convertToLineItem(parsedItem)
 		if err != nil {
@@ -291,13 +261,11 @@ func (uc *RegisterTariffUseCase) convertToTariff(
 func (uc *RegisterTariffUseCase) convertToLineItem(
 	parsed pricing.ParsedLineItem,
 ) (*pricing.TariffLineItem, error) {
-	// ServiceScopeの構築
 	serviceScope, err := uc.buildServiceScope(parsed)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build service scope: %w", err)
 	}
 
-	// PricingStrategyの構築
 	pricingLogic, err := uc.buildPricingStrategy(parsed)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build pricing strategy: %w", err)
@@ -318,7 +286,6 @@ func (uc *RegisterTariffUseCase) buildServiceScope(
 ) (pricing.ServiceScope, error) {
 	switch parsed.ServiceScopeType {
 	case pricing.ScopeLocation:
-		// LocationServiceの構築
 		locationIDStr, ok := parsed.ServiceScopeAttrs["LocationID"]
 		if !ok {
 			return nil, errors.New("LocationID is required for LOCATION scope")
@@ -330,7 +297,7 @@ func (uc *RegisterTariffUseCase) buildServiceScope(
 
 		serviceType, ok := parsed.ServiceScopeAttrs["ServiceType"]
 		if !ok {
-			serviceType = "HANDLING" // デフォルト
+			serviceType = "HANDLING"
 		}
 
 		return pricing.LocationService{
@@ -339,7 +306,6 @@ func (uc *RegisterTariffUseCase) buildServiceScope(
 		}, nil
 
 	case pricing.ScopeTransportation:
-		// TransportationServiceの構築
 		originIDStr, ok := parsed.ServiceScopeAttrs["OriginID"]
 		if !ok {
 			return nil, errors.New("OriginID is required for TRANSPORTATION scope")
@@ -358,7 +324,6 @@ func (uc *RegisterTariffUseCase) buildServiceScope(
 			return nil, fmt.Errorf("invalid DestinationID: %w", err)
 		}
 
-		// TransportModeの解決
 		modeStr, ok := parsed.ServiceScopeAttrs["Mode"]
 		if !ok {
 			return nil, errors.New("Mode is required for TRANSPORTATION scope")
@@ -454,7 +419,6 @@ func (uc *RegisterTariffUseCase) buildExpressionStrategy(
 }
 
 // buildCompositeStrategy: CompositeStrategyを構築
-// Steps内の各要素は map[string]any で、"Type" キーで戦略種別を指定する
 func (uc *RegisterTariffUseCase) buildCompositeStrategy(
 	attrs map[string]any,
 ) (*pricing.CompositeStrategy, error) {
@@ -463,7 +427,6 @@ func (uc *RegisterTariffUseCase) buildCompositeStrategy(
 		return nil, errors.New("Steps is required for COMPOSITE pricing")
 	}
 
-	// []any または []map[string]any の両方に対応
 	var stepMaps []map[string]any
 	switch v := stepsRaw.(type) {
 	case []map[string]any:
@@ -511,7 +474,6 @@ func (uc *RegisterTariffUseCase) buildCompositeStrategy(
 
 // parseTransportMode: 文字列からTransportModeに変換
 func (uc *RegisterTariffUseCase) parseTransportMode(modeStr string) (shared.TransportMode, error) {
-	// shared.TransportMode 型に変換
 	validModes := map[string]shared.TransportMode{
 		"OCEAN":   shared.ModeOcean,
 		"AIR":     shared.ModeAir,

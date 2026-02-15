@@ -14,28 +14,19 @@ import (
 //
 // 処理の流れ:
 // 1. 入力バリデーション
-// 2. 既存の同一入札要求の契約を検索（重複チェック）
-// 3. DRAFT契約を作成
-// 4. 契約を永続化
-// 5. 出力DTOの作成
-//
-// 想定される利用シーン:
-// - 荷主が入札を開始し、複数の物流業者を選択した際に、各業者用のDRAFT契約を一括作成
-// - 業者から入札参加の意思表示があった際に、個別にDRAFT契約を作成
+// 2. DRAFT契約を作成
+// 3. 契約を永続化
+// 4. 出力DTOの作成
 type CreateBidContractUseCase struct {
-	// 本来利用すべきリポジトリ（コメントアウト）
-	// contractRepo contract.ServiceContractRepository
-	// providerRepo contract.LogisticsProviderRepository
+	contractRepo contract.ServiceContractRepository
 }
 
 // NewCreateBidContractUseCase: CreateBidContractUseCaseのコンストラクタ
 func NewCreateBidContractUseCase(
-// contractRepo contract.ServiceContractRepository,
-// providerRepo contract.LogisticsProviderRepository,
+	contractRepo contract.ServiceContractRepository,
 ) *CreateBidContractUseCase {
 	return &CreateBidContractUseCase{
-		// contractRepo: contractRepo,
-		// providerRepo: providerRepo,
+		contractRepo: contractRepo,
 	}
 }
 
@@ -49,27 +40,7 @@ func (uc *CreateBidContractUseCase) Execute(
 		return nil, NewCreateBidContractError("INVALID_INPUT", err.Error())
 	}
 
-	// 2. 物流業者の存在確認（コメントアウト）
-	// provider, err := uc.providerRepo.FindByID(ctx, input.ProviderID)
-	// if err != nil || provider == nil {
-	// 	return nil, NewCreateBidContractError("PROVIDER_NOT_FOUND", "provider not found").
-	// 		WithDetail("providerID", input.ProviderID)
-	// }
-
-	// 3. 既存の同一入札要求の契約を検索（重複チェック）
-	// existingContracts, err := uc.contractRepo.FindDraftByProviderAndShipper(ctx, input.ProviderID, input.ShipperID)
-	// if err != nil {
-	// 	return nil, NewCreateBidContractError("REPO_ERROR", "failed to check existing contracts")
-	// }
-	// for _, existing := range existingContracts {
-	// 	// 同じBidRequestIDの契約が既に存在する場合はエラー
-	// 	if uc.hasSameBidRequest(existing, input.BidRequestID) {
-	// 		return nil, NewCreateBidContractError("DUPLICATE_CONTRACT", "contract for this bid request already exists").
-	// 			WithDetail("existingContractID", existing.ID)
-	// 	}
-	// }
-
-	// 4. DRAFT契約を作成
+	// 2. DRAFT契約を作成
 	contract, err := contract.NewServiceContract(
 		input.ProviderID,
 		input.ShipperID,
@@ -80,13 +51,13 @@ func (uc *CreateBidContractUseCase) Execute(
 		return nil, NewCreateBidContractError("CONTRACT_CREATE_ERROR", err.Error())
 	}
 
-	// 5. 契約を永続化（コメントアウト）
-	// if err := uc.contractRepo.Save(ctx, contract); err != nil {
-	// 	return nil, NewCreateBidContractError("SAVE_ERROR", "failed to save contract").
-	// 		WithDetail("contractID", contract.ID)
-	// }
+	// 3. 契約を永続化
+	if err := uc.contractRepo.Save(ctx, contract); err != nil {
+		return nil, NewCreateBidContractError("SAVE_ERROR", "failed to save contract").
+			WithDetail("contractID", contract.ID)
+	}
 
-	// 6. 出力DTOの作成
+	// 4. 出力DTOの作成
 	output := &CreateBidContractOutput{
 		ContractID:      contract.ID,
 		ProviderID:      contract.ProviderID,
@@ -132,15 +103,3 @@ func (uc *CreateBidContractUseCase) validateInput(input CreateBidContractInput) 
 
 	return nil
 }
-
-// hasSameBidRequest: 契約が同じBidRequestIDを持つかチェック
-// 本来はServiceContractにBidRequestIDフィールドを追加するか、
-// メタデータとして保存する必要がある
-// func (uc *CreateBidContractUseCase) hasSameBidRequest(
-// 	contract *contract.ServiceContract,
-// 	bidRequestID uuid.UUID,
-// ) bool {
-// 	// 実装案: ServiceContractにBidRequestIDフィールドを追加
-// 	// または、契約作成時のメタデータとして保存
-// 	return false // プレースホルダー
-// }

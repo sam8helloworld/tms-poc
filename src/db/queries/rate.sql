@@ -22,5 +22,8 @@ SELECT * FROM rate_entries WHERE rate_id = $1;
 INSERT INTO rate_entries (id, rate_id, provider_id, contract_id, tariff_id, origin_id, destination_id, transport_mode)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
 
+-- name: ListRatesByShipper :many
+SELECT * FROM rates WHERE shipper_id = $1 ORDER BY created_at DESC;
+
 -- name: DeleteRateEntriesByRateID :exec
 DELETE FROM rate_entries WHERE rate_id = $1;
