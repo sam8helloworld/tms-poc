@@ -41,7 +41,7 @@ var dbResetCmd = &cobra.Command{
 			"shipment_cost_line_items",
 			"shipment_tracking_units",
 			"shipment_items",
-			"shipment_segments",
+			"shipment_planned_route_segments",
 			"shipments",
 			"rate_entries",
 			"rates",
