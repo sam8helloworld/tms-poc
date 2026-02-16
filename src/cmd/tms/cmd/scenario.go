@@ -11,6 +11,7 @@ import (
 // scenarioRegistry: 利用可能なシナリオの一覧
 var scenarioRegistry = []scenarios.Scenario{
 	&scenarios.SourcingBidScenario{},
+	&scenarios.RateBafUpdateScenario{},
 }
 
 var scenarioCmd = &cobra.Command{
@@ -39,15 +40,17 @@ var scenarioRunCmd = &cobra.Command{
 		name := args[0]
 
 		scenarioDeps := &scenarios.ScenarioDeps{
-			CreateBidContractUC:    deps.CreateBidContractUC,
-			AwardBidContractUC:     deps.AwardBidContractUC,
-			RegisterTariffDirectUC: deps.RegisterTariffDirectUC,
-			CreateRateUC:           deps.CreateRateUC,
-			ActivateRateUC:         deps.ActivateRateUC,
-			ApplyContractToRateUC:  deps.ApplyContractToRateUC,
-			NetworkQuery:           deps.NetworkQuery,
-			SourcingQuery:          deps.SourcingQuery,
-			RateQuery:              deps.RateQuery,
+			CreateBidContractUC:     deps.CreateBidContractUC,
+			AwardBidContractUC:      deps.AwardBidContractUC,
+			RegisterTariffDirectUC:  deps.RegisterTariffDirectUC,
+			AmendTariffDirectUC:     deps.AmendTariffDirectUC,
+			CreateRateUC:            deps.CreateRateUC,
+			ActivateRateUC:          deps.ActivateRateUC,
+			ApplyContractToRateUC:   deps.ApplyContractToRateUC,
+			UpdateRateEntryTariffUC: deps.UpdateRateEntryTariffUC,
+			NetworkQuery:            deps.NetworkQuery,
+			SourcingQuery:           deps.SourcingQuery,
+			RateQuery:               deps.RateQuery,
 		}
 
 		for _, s := range scenarioRegistry {

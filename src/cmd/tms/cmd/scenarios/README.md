@@ -138,6 +138,100 @@ cd src && go run ./cmd/tms scenario run <scenario-name>
 
 ---
 
+### `rate-baf-update` — BAF更新によるレート更新
+
+**概要**: レートに登録されたTariffに対して、業者からBAF（Bunker Adjustment Factor / 燃油サーチャージ）の更新通知が届いた場合に、契約の料金表を改定しレートのエントリを差し替えるまでの業務フローを実行します。
+
+#### 業務フロー（8ステップ）
+
+| ステップ | 内容 | UseCase / 処理 |
+|---------|------|-----------------|
+| Setup | マスターデータ作成（2拠点・1業者） | LocationRepo・VendorRepo 直接操作 |
+| Step 1 | FWD AlphaとのDRAFT契約作成 | `CreateBidContractUseCase` |
+| Step 2 | Tariff登録（OFT + BAF × 2ルート = 4 LineItems） | `RegisterTariffDirectUseCase` |
+| Step 3 | 契約をCONTRACTED化 | `AwardBidContractUseCase` |
+| Step 4 | DRAFTレート作成 | `CreateRateUseCase` |
+| Step 5 | 契約のTariffをレートに反映 | `ApplyContractToRateUseCase` (ACL経由) |
+| Step 6 | **BAF更新通知 → Tariff v2作成（BAF金額変更）** | `AmendContractTariffDirectUseCase` |
+| Step 7 | **レートのBAFエントリをv2のLineItemに差し替え** | `UpdateRateEntryTariffUseCase` |
+| Step 8 | レートをACTIVE化 | `ActivateRateUseCase` |
+
+#### Setup で作成するマスターデータ
+
+**拠点（2箇所）**
+
+| 名称 | UN/LOCODE | 国 |
+|-----|-----------|---|
+| Tokyo | JPTYO | JP |
+| Shanghai | CNSHA | CN |
+
+**業者（1社）**
+
+| 名称 | 種別 |
+|-----|------|
+| FWD Alpha | FORWARDER |
+
+#### Tariff構成（v1 → v2）
+
+| ルート | 費目 | v1 価格 | v2 価格 | 変動 |
+|-------|------|---------|---------|------|
+| Tokyo → Shanghai | OFT | $1,200 | $1,200 | — |
+| Tokyo → Shanghai | BAF | $350 | $420 | +$70 (↑20%) |
+| Shanghai → Tokyo | OFT | $1,100 | $1,100 | — |
+| Shanghai → Tokyo | BAF | $320 | $380 | +$60 (↑19%) |
+
+> BAFのみ値上がりし、OFT（海上運賃）は据え置きです。
+
+#### 出力例
+
+```
+=== Rate BAF Update Scenario ===
+
+[Setup] Creating 2 locations... done
+[Setup] Creating 1 vendor... done
+
+[Step 1] Creating bid contract...
+  → FWD Alpha: contract a1b2c3d4 作成（DRAFT）
+
+[Step 2] Registering tariff (OFT + BAF × 2 routes = 4 line items)...
+  → 1 tariff registered (4 line items)
+
+[Step 3] Awarding contract...
+  → FWD Alpha: DRAFT → CONTRACTED
+
+[Step 4] Creating rate "2026 H1 Rate"... done
+
+[Step 5] Applying contract to rate...
+  → 4 エントリを適用
+
+  ┌─ [レートカード] レート一覧（BAF更新前） ──────────
+  │ Route          │ Provider    │ Charge  │ UnitPrice
+  │ TYO→SHA        │ FWD Alpha   │ OFT     │ $1200.00 USD
+  │ TYO→SHA        │ FWD Alpha   │ BAF     │ $350.00 USD
+  │ SHA→TYO        │ FWD Alpha   │ OFT     │ $1100.00 USD
+  │ SHA→TYO        │ FWD Alpha   │ BAF     │ $320.00 USD
+  └─ 計 4 エントリ
+
+[Step 6] BAF update notification received → Creating tariff v2...
+  ※ 業者から燃油サーチャージ（BAF）の改定通知が届きました
+
+  ┌─ [料金表画面] BAF改定前後の比較 ──────────
+  │ Route              │ Code    │ v1 Price   │ v2 Price   │ Change
+  │ Tokyo → Shanghai   │ BAF     │ $350       │ $420       │ +$70 (↑20%)
+  │ Shanghai → Tokyo   │ BAF     │ $320       │ $380       │ +$60 (↑19%)
+  └─ Tariff v1 → v2
+
+[Step 7] Updating rate entries with new BAF tariff...
+  → Entry xxxx: BAF Tokyo → Shanghai → Tariff v2
+  → Entry yyyy: BAF Shanghai → Tokyo → Tariff v2
+  → 2 件のBAFエントリを更新
+
+[Step 8] Activating rate... done
+  Status: ACTIVE ← BAF改定反映済み
+
+=== Scenario Complete ===
+```
+
 ## 新しいシナリオの追加方法
 
 1. このディレクトリに `my_scenario.go` を作成する

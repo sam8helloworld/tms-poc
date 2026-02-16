@@ -10,8 +10,8 @@ import (
 	eventquery "github.com/sam8helloworld/tms-poc/internal/shared/query"
 
 	docapp "github.com/sam8helloworld/tms-poc/internal/document/application/document"
-	docpersistence "github.com/sam8helloworld/tms-poc/internal/document/infrastructure/persistence"
 	docextractor "github.com/sam8helloworld/tms-poc/internal/document/infrastructure/extractor"
+	docpersistence "github.com/sam8helloworld/tms-poc/internal/document/infrastructure/persistence"
 	docquery "github.com/sam8helloworld/tms-poc/internal/document/query"
 
 	networkquery "github.com/sam8helloworld/tms-poc/internal/network/query"
@@ -31,8 +31,8 @@ import (
 
 	trackingapp "github.com/sam8helloworld/tms-poc/internal/tracking/application/tracking"
 	trackingdomain "github.com/sam8helloworld/tms-poc/internal/tracking/domain/tracking"
-	trackingprovider "github.com/sam8helloworld/tms-poc/internal/tracking/infrastructure/provider"
 	trackingpersistence "github.com/sam8helloworld/tms-poc/internal/tracking/infrastructure/persistence"
+	trackingprovider "github.com/sam8helloworld/tms-poc/internal/tracking/infrastructure/provider"
 	trackingquery "github.com/sam8helloworld/tms-poc/internal/tracking/query"
 
 	operationquery "github.com/sam8helloworld/tms-poc/internal/operation/query"
@@ -48,14 +48,15 @@ type Dependencies struct {
 	RegisterTariffUC       *tariffapp.RegisterTariffUseCase
 	RegisterTariffDirectUC *tariffapp.RegisterTariffDirectUseCase
 	AmendTariffUC          *tariffapp.AmendContractTariffUseCase
+	AmendTariffDirectUC    *tariffapp.AmendContractTariffDirectUseCase
 	AddTariffVersionUC     *tariffapp.AddTariffVersionUseCase
 	RemoveTariffUC         *tariffapp.RemoveTariffFromContractUseCase
 
 	// UseCases - Rate
-	CreateRateUC             *rateapp.CreateRateUseCase
-	ActivateRateUC           *rateapp.ActivateRateUseCase
-	ApplyContractToRateUC    *rateapp.ApplyContractToRateUseCase
-	UpdateRateEntryTariffUC  *rateapp.UpdateRateEntryTariffUseCase
+	CreateRateUC            *rateapp.CreateRateUseCase
+	ActivateRateUC          *rateapp.ActivateRateUseCase
+	ApplyContractToRateUC   *rateapp.ApplyContractToRateUseCase
+	UpdateRateEntryTariffUC *rateapp.UpdateRateEntryTariffUseCase
 
 	// UseCases - Tracking
 	RegisterTrackingUC *trackingapp.RegisterShipmentTrackingUseCase
@@ -67,14 +68,14 @@ type Dependencies struct {
 	ConfirmDocumentUC *docapp.ConfirmDocumentUseCase
 
 	// QueryServices
-	SourcingQuery   *sourcingquery.SourcingQueryService
-	NetworkQuery    *networkquery.NetworkQueryService
-	RateQuery       *ratequery.RateQueryService
-	ShipmentQuery   *shipmentquery.ShipmentQueryService
-	TrackingQuery   *trackingquery.TrackingQueryService
-	DocumentQuery   *docquery.DocumentQueryService
-	OperationQuery  *operationquery.OperationQueryService
-	EventQuery      *eventquery.EventQueryService
+	SourcingQuery  *sourcingquery.SourcingQueryService
+	NetworkQuery   *networkquery.NetworkQueryService
+	RateQuery      *ratequery.RateQueryService
+	ShipmentQuery  *shipmentquery.ShipmentQueryService
+	TrackingQuery  *trackingquery.TrackingQueryService
+	DocumentQuery  *docquery.DocumentQueryService
+	OperationQuery *operationquery.OperationQueryService
+	EventQuery     *eventquery.EventQueryService
 }
 
 // NewDependencies: 全依存の初期化
@@ -114,6 +115,7 @@ func NewDependencies(pool *pgxpool.Pool) *Dependencies {
 		RegisterTariffUC:       tariffapp.NewRegisterTariffUseCase(parserFactory, validator, tariffRepo, contractRepo),
 		RegisterTariffDirectUC: tariffapp.NewRegisterTariffDirectUseCase(tariffRepo, contractRepo),
 		AmendTariffUC:          tariffapp.NewAmendContractTariffUseCase(contractRepo, tariffRepo, parserFactory),
+		AmendTariffDirectUC:    tariffapp.NewAmendContractTariffDirectUseCase(tariffRepo, contractRepo),
 		AddTariffVersionUC:     tariffapp.NewAddTariffVersionUseCase(contractRepo, tariffRepo, parserFactory),
 		RemoveTariffUC:         tariffapp.NewRemoveTariffFromContractUseCase(contractRepo, tariffRepo),
 

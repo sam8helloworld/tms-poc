@@ -4,12 +4,12 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	networkquery "github.com/sam8helloworld/tms-poc/internal/network/query"
+	rateapp "github.com/sam8helloworld/tms-poc/internal/rate/application/rate"
+	ratequery "github.com/sam8helloworld/tms-poc/internal/rate/query"
 	bidapp "github.com/sam8helloworld/tms-poc/internal/sourcing/application/bid"
 	tariffapp "github.com/sam8helloworld/tms-poc/internal/sourcing/application/tariff"
-	rateapp "github.com/sam8helloworld/tms-poc/internal/rate/application/rate"
-	networkquery "github.com/sam8helloworld/tms-poc/internal/network/query"
 	sourcingquery "github.com/sam8helloworld/tms-poc/internal/sourcing/query"
-	ratequery "github.com/sam8helloworld/tms-poc/internal/rate/query"
 )
 
 // Scenario: シナリオインターフェース
@@ -26,11 +26,13 @@ type ScenarioDeps struct {
 	CreateBidContractUC    *bidapp.CreateBidContractUseCase
 	AwardBidContractUC     *bidapp.AwardBidContractUseCase
 	RegisterTariffDirectUC *tariffapp.RegisterTariffDirectUseCase
+	AmendTariffDirectUC    *tariffapp.AmendContractTariffDirectUseCase
 
 	// UseCases - Rate
-	CreateRateUC          *rateapp.CreateRateUseCase
-	ActivateRateUC        *rateapp.ActivateRateUseCase
-	ApplyContractToRateUC *rateapp.ApplyContractToRateUseCase
+	CreateRateUC            *rateapp.CreateRateUseCase
+	ActivateRateUC          *rateapp.ActivateRateUseCase
+	ApplyContractToRateUC   *rateapp.ApplyContractToRateUseCase
+	UpdateRateEntryTariffUC *rateapp.UpdateRateEntryTariffUseCase
 
 	// QueryServices（各ステップ後のデータ確認用）
 	NetworkQuery  *networkquery.NetworkQueryService
