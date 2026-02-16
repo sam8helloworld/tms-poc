@@ -33,6 +33,7 @@ type ScenarioDeps struct {
 	ActivateRateUC          *rateapp.ActivateRateUseCase
 	ApplyContractToRateUC   *rateapp.ApplyContractToRateUseCase
 	UpdateRateEntryTariffUC *rateapp.UpdateRateEntryTariffUseCase
+	SimulateRateCostUC      *rateapp.SimulateRateCostUseCase
 
 	// QueryServices（各ステップ後のデータ確認用）
 	NetworkQuery  *networkquery.NetworkQueryService

@@ -17,6 +17,7 @@ import (
 	networkquery "github.com/sam8helloworld/tms-poc/internal/network/query"
 
 	rateapp "github.com/sam8helloworld/tms-poc/internal/rate/application/rate"
+	rateinfra "github.com/sam8helloworld/tms-poc/internal/rate/infrastructure"
 	ratepersistence "github.com/sam8helloworld/tms-poc/internal/rate/infrastructure/persistence"
 	ratequery "github.com/sam8helloworld/tms-poc/internal/rate/query"
 
@@ -57,6 +58,7 @@ type Dependencies struct {
 	ActivateRateUC          *rateapp.ActivateRateUseCase
 	ApplyContractToRateUC   *rateapp.ApplyContractToRateUseCase
 	UpdateRateEntryTariffUC *rateapp.UpdateRateEntryTariffUseCase
+	SimulateRateCostUC      *rateapp.SimulateRateCostUseCase
 
 	// UseCases - Tracking
 	RegisterTrackingUC *trackingapp.RegisterShipmentTrackingUseCase
@@ -124,6 +126,7 @@ func NewDependencies(pool *pgxpool.Pool) *Dependencies {
 		ActivateRateUC:          rateapp.NewActivateRateUseCase(rateRepo),
 		ApplyContractToRateUC:   rateapp.NewApplyContractToRateUseCase(rateRepo, contractRepo, tariffRepo),
 		UpdateRateEntryTariffUC: rateapp.NewUpdateRateEntryTariffUseCase(rateRepo, contractRepo, tariffRepo),
+		SimulateRateCostUC:      rateapp.NewSimulateRateCostUseCase(rateRepo, rateinfra.NewTariffCalculatorAdapter(tariffRepo)),
 
 		// Tracking UseCases
 		RegisterTrackingUC: trackingapp.NewRegisterShipmentTrackingUseCase(trackingRepo, bus),

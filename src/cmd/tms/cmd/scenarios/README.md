@@ -232,6 +232,136 @@ cd src && go run ./cmd/tms scenario run <scenario-name>
 === Scenario Complete ===
 ```
 
+### `rate-simulation` — レートコストシミュレーション
+
+**概要**: 入札で確定したACTIVEレートに対して、輸送前にルート・貨物条件（数量・重量・容積）を指定してコストをシミュレーションします。`SimulateRateCostUseCase` は ACL パターンで `TariffCalculator` インターフェースを経由し、Sourcing BC の `Tariff.CalculateCharges()` に料金計算を委譲します。未登録ルートは「輸送不可」として表示されます。
+
+#### 業務フロー（8ステップ）
+
+| ステップ | 内容 | UseCase / 処理 |
+|---------|------|-----------------|
+| Setup | マスターデータ作成（3拠点・2業者） | LocationRepo・VendorRepo 直接操作 |
+| Step 1 | 2社とのDRAFT契約作成 | `CreateBidContractUseCase` |
+| Step 2 | 各社 Tariff登録（OFT/BAF/THC/CFS × 3ルート） | `RegisterTariffDirectUseCase` |
+| Step 3 | ルート別料金比較・最安業者選定 | 集計・表示ロジック |
+| Step 4 | 契約Award | `AwardBidContractUseCase` |
+| Step 5 | DRAFTレート作成 | `CreateRateUseCase` |
+| Step 6 | 契約のTariffをレートに反映 | `ApplyContractToRateUseCase` |
+| Step 7 | レートをACTIVE化 | `ActivateRateUseCase` |
+| Step 8 | **レートコストシミュレーション** | **`SimulateRateCostUseCase`** |
+
+#### Setup で作成するマスターデータ
+
+**拠点（3箇所）**
+
+| 名称 | UN/LOCODE | 国 |
+|-----|-----------|---|
+| Tokyo | JPTYO | JP |
+| Shanghai | CNSHA | CN |
+| Singapore | SGSIN | SG |
+
+**業者（2社）**
+
+| 名称 | 種別 |
+|-----|------|
+| FWD Alpha | FORWARDER |
+| FWD Beta | FORWARDER |
+
+#### 対象ルート（3ルート、全て海上輸送）
+
+| # | ルート | OFT基準 (Flat) | BAF基準 (Flat) | THC単価 (Expr) | CFS基本/単価 (Comp) |
+|---|-------|---------------|---------------|---------------|-------------------|
+| 1 | Tokyo → Shanghai | $1,200 | $350 | $0.50/kg | $150 + $0.02/kg |
+| 2 | Shanghai → Singapore | $800 | $200 | $0.40/kg | $120 + $0.015/kg |
+| 3 | Tokyo → Singapore | $1,500 | $400 | $0.60/kg | $180 + $0.025/kg |
+
+> 各社の実際の料金は基準価格に±20%のランダム変動が加わります。
+> - **OFT/BAF**: Flat Strategy (Amount × Quantity)
+> - **THC**: Expression Strategy (Chargeable Weight × Rate)
+> - **CFS**: Composite Strategy (Flat Base + Weight × Rate)
+
+#### シミュレーション対象（Step 8）
+
+| # | ルート条件 | 貨物条件 | 期待される結果 |
+|---|----------|---------|---------------|
+| 1 | Tokyo → Shanghai (OCEAN) | 1本/18,000kg/30m³ | ✓ 輸送可能（Tariff計算で金額算出） |
+| 2 | Tokyo → Singapore (OCEAN) | 1本/18,000kg/30m³ | ✓ 輸送可能（Tariff計算で金額算出） |
+| 3 | Singapore → Tokyo (OCEAN) | 1本/18,000kg/30m³ | ✗ 輸送不可（レート未登録ルート） |
+
+#### 出力例
+
+```
+=== Rate Simulation Scenario ===
+
+[Setup] Creating 3 locations... done
+[Setup] Creating 2 vendors... done
+
+[Step 1] Creating bid contracts...
+  → FWD Alpha:   contract a1b2c3d4 作成（DRAFT）
+  → FWD Beta:    contract e5f6g7h8 作成（DRAFT）
+
+[Step 2] Registering tariffs (OFT + BAF × 3 routes per FWD)...
+  → FWD Alpha:   1 tariff registered (6 line items)
+  → FWD Beta:    1 tariff registered (6 line items)
+
+[Step 3] Comparing tariffs per route (OFT + BAF total)...
+  ┌─ [入札比較画面] ルート別料金比較 ──────────────────────
+  │ Route                         │ FWD Alpha        │ FWD Beta         │ Winner
+  │ Tokyo → Shanghai (OCEAN)      │ $1480 ★          │ $1620            │ FWD Alpha
+  │ Shanghai → Singapore (OCEAN)  │ $1050            │ $960 ★           │ FWD Beta
+  │ Tokyo → Singapore (OCEAN)     │ $1830            │ $1780 ★          │ FWD Beta
+  └─ ★ = 最安値（OFT + BAF合計）
+
+[Step 4] Awarding contracts...
+  → FWD Alpha:   DRAFT → CONTRACTED (1 routes won)
+  → FWD Beta:    DRAFT → CONTRACTED (2 routes won)
+
+[Step 5] Creating rate "2026 H1 Rate"... done
+[Step 6] Applying contracts to rate...
+  → ContractID a1b2c3d4 の 2 エントリを適用（累計: 2）
+  → ContractID e5f6g7h8 の 4 エントリを適用（累計: 6）
+
+[Step 7] Activating rate... done
+
+[Step 8] Simulating rate cost for transport routes...
+  ※ 輸送前のコスト見積もりを実施します（貨物条件: 1本 20DC / 18,000kg / 30m³）
+
+  Rate: 2026 H1 Rate (Status: ACTIVE)
+
+  ┌─ [シミュレーション結果] Tokyo → Shanghai (OCEAN) ✓ 輸送可能 ────
+  │ Charge    Category      Amount
+  │ ----------------------------------------
+  │ OFT       FREIGHT       $1130.00 USD
+  │ BAF       SURCHARGE     $350.00 USD
+  │ THC       HANDLING      $145.00 USD
+  │ CFS       FREIGHT       $510.00 USD
+  │ ----------------------------------------
+  │ 合計見積額: $2135.00 USD
+  └──────────────────────────────────────────────
+
+  ┌─ [シミュレーション結果] Tokyo → Singapore (OCEAN) ✓ 輸送可能 ────
+  │ Charge    Category      Amount
+  │ ----------------------------------------
+  │ OFT       FREIGHT       $1420.00 USD
+  │ BAF       SURCHARGE     $360.00 USD
+  │ THC       HANDLING      $180.00 USD
+  │ CFS       FREIGHT       $600.00 USD
+  │ ----------------------------------------
+  │ 合計見積額: $2560.00 USD
+  └──────────────────────────────────────────────
+
+  ┌─ [シミュレーション結果] Singapore → Tokyo (OCEAN) ✗ 輸送不可 ────
+  │ 該当するレートエントリが見つかりません
+  │ → このルートは現在のレートではカバーされていません
+  └──────────────────────────────────────────────
+
+  シミュレーション完了: 2/3 ルートが輸送可能
+
+=== Scenario Complete ===
+```
+
+---
+
 ## 新しいシナリオの追加方法
 
 1. このディレクトリに `my_scenario.go` を作成する

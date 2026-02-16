@@ -12,6 +12,7 @@ import (
 var scenarioRegistry = []scenarios.Scenario{
 	&scenarios.SourcingBidScenario{},
 	&scenarios.RateBafUpdateScenario{},
+	&scenarios.RateSimulationScenario{},
 }
 
 var scenarioCmd = &cobra.Command{
@@ -48,6 +49,7 @@ var scenarioRunCmd = &cobra.Command{
 			ActivateRateUC:          deps.ActivateRateUC,
 			ApplyContractToRateUC:   deps.ApplyContractToRateUC,
 			UpdateRateEntryTariffUC: deps.UpdateRateEntryTariffUC,
+			SimulateRateCostUC:      deps.SimulateRateCostUC,
 			NetworkQuery:            deps.NetworkQuery,
 			SourcingQuery:           deps.SourcingQuery,
 			RateQuery:               deps.RateQuery,

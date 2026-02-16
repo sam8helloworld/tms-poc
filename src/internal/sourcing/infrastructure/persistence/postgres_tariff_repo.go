@@ -9,10 +9,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/shopspring/decimal"
 	"github.com/sam8helloworld/tms-poc/internal/network/domain/route"
 	"github.com/sam8helloworld/tms-poc/internal/shared"
 	"github.com/sam8helloworld/tms-poc/internal/sourcing/domain/pricing"
+	"github.com/shopspring/decimal"
 )
 
 // PostgresTariffRepo: Tariff集約のPostgreSQL実装
@@ -269,7 +269,6 @@ func deserializeScope(data []byte) pricing.ServiceScope {
 }
 
 // deserializeLogic: JSONB からPricingStrategyを復元
-// FlatStrategy: {"Amount":{"Amount":"1234.56","Currency":"USD"}}
 func deserializeLogic(data []byte) pricing.PricingStrategy {
 	if len(data) == 0 {
 		return nil
@@ -294,6 +293,39 @@ func deserializeLogic(data []byte) pricing.PricingStrategy {
 		return &pricing.FlatStrategy{
 			Amount: shared.Money{Amount: s.Amount.Amount, Currency: s.Amount.Currency},
 		}
+	}
+
+	// ExpressionStrategy の判定: Formula フィールドの存在
+	if _, ok := raw["Formula"]; ok {
+		var s struct {
+			Formula  string `json:"Formula"`
+			Currency string `json:"Currency"`
+		}
+		if err := json.Unmarshal(data, &s); err != nil {
+			return nil
+		}
+		return &pricing.ExpressionStrategy{
+			Formula:  s.Formula,
+			Currency: s.Currency,
+		}
+	}
+
+	// CompositeStrategy の判定: Steps フィールドの存在
+	if _, ok := raw["Steps"]; ok {
+		var s struct {
+			Steps []json.RawMessage `json:"Steps"`
+		}
+		if err := json.Unmarshal(data, &s); err != nil {
+			return nil
+		}
+
+		var steps []pricing.PricingStrategy
+		for _, stepData := range s.Steps {
+			if step := deserializeLogic(stepData); step != nil {
+				steps = append(steps, step)
+			}
+		}
+		return &pricing.CompositeStrategy{Steps: steps}
 	}
 
 	return nil
