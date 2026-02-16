@@ -34,17 +34,21 @@ func NewRateEntryAdded(rateID, entryID uuid.UUID) RateEntryAdded {
 // RateEntryTariffReplaced: レートエントリのTariff差し替えイベント
 type RateEntryTariffReplaced struct {
 	shared.BaseEvent
-	EntryID     uuid.UUID
-	OldTariffID uuid.UUID
-	NewTariffID uuid.UUID
+	EntryID              uuid.UUID
+	OldTariffID          uuid.UUID
+	NewTariffID          uuid.UUID
+	OldTariffLineItemID  uuid.UUID
+	NewTariffLineItemID  uuid.UUID
 }
 
 // NewRateEntryTariffReplaced: RateEntryTariffReplacedイベントを生成
-func NewRateEntryTariffReplaced(rateID, entryID, oldTariffID, newTariffID uuid.UUID) RateEntryTariffReplaced {
+func NewRateEntryTariffReplaced(rateID, entryID, oldTariffID, newTariffID, oldLineItemID, newLineItemID uuid.UUID) RateEntryTariffReplaced {
 	return RateEntryTariffReplaced{
-		BaseEvent:   shared.NewBaseEvent("RateEntryTariffReplaced", rateID, "Rate"),
-		EntryID:     entryID,
-		OldTariffID: oldTariffID,
-		NewTariffID: newTariffID,
+		BaseEvent:            shared.NewBaseEvent("RateEntryTariffReplaced", rateID, "Rate"),
+		EntryID:              entryID,
+		OldTariffID:          oldTariffID,
+		NewTariffID:          newTariffID,
+		OldTariffLineItemID:  oldLineItemID,
+		NewTariffLineItemID:  newLineItemID,
 	}
 }

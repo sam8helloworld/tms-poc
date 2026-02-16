@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
+	"github.com/sam8helloworld/tms-poc/internal/network/domain/route"
 	"github.com/sam8helloworld/tms-poc/internal/shared"
 	"github.com/sam8helloworld/tms-poc/internal/sourcing/domain/pricing"
 )
@@ -185,10 +187,8 @@ func (r *PostgresTariffRepo) loadLineItems(ctx context.Context, tariffID uuid.UU
 		if err != nil {
 			return nil, err
 		}
-		// Note: Scope and Logic deserialization requires polymorphic mapping
-		// This will be implemented in a separate mapper when concrete types are known
-		_ = scopeJSON
-		_ = logicJSON
+		item.Scope = deserializeScope(scopeJSON)
+		item.Logic = deserializeLogic(logicJSON)
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -217,4 +217,84 @@ func (r *PostgresTariffRepo) collectTariffsWithLineItems(ctx context.Context, ro
 		t.LineItems = lineItems
 	}
 	return tariffs, nil
+}
+
+// deserializeScope: JSONB からServiceScopeを復元
+// TransportationService: {"OriginID":[bytes],"DestinationID":[bytes],"Mode":"OCEAN"}
+// LocationService: {"LocationID":[bytes],"ServiceType":"HANDLING"}
+// Note: route.LocationID (type LocationID uuid.UUID) はjson.Marshalでバイト配列として保存される
+func deserializeScope(data []byte) pricing.ServiceScope {
+	if len(data) == 0 {
+		return nil
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil
+	}
+
+	// TransportationService の判定: OriginID フィールドの存在
+	if _, ok := raw["OriginID"]; ok {
+		var s struct {
+			OriginID      route.LocationID `json:"OriginID"`
+			DestinationID route.LocationID `json:"DestinationID"`
+			Mode          string           `json:"Mode"`
+		}
+		if err := json.Unmarshal(data, &s); err != nil {
+			return nil
+		}
+		return &pricing.TransportationService{
+			OriginID:      s.OriginID,
+			DestinationID: s.DestinationID,
+			Mode:          shared.TransportMode(s.Mode),
+		}
+	}
+
+	// LocationService の判定: LocationID フィールドの存在
+	if _, ok := raw["LocationID"]; ok {
+		var s struct {
+			LocationID  route.LocationID `json:"LocationID"`
+			ServiceType string           `json:"ServiceType"`
+		}
+		if err := json.Unmarshal(data, &s); err != nil {
+			return nil
+		}
+		return &pricing.LocationService{
+			LocationID:  s.LocationID,
+			ServiceType: s.ServiceType,
+		}
+	}
+
+	return nil
+}
+
+// deserializeLogic: JSONB からPricingStrategyを復元
+// FlatStrategy: {"Amount":{"Amount":"1234.56","Currency":"USD"}}
+func deserializeLogic(data []byte) pricing.PricingStrategy {
+	if len(data) == 0 {
+		return nil
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil
+	}
+
+	// FlatStrategy の判定: Amount フィールドの存在
+	if _, ok := raw["Amount"]; ok {
+		var s struct {
+			Amount struct {
+				Amount   decimal.Decimal `json:"Amount"`
+				Currency string          `json:"Currency"`
+			} `json:"Amount"`
+		}
+		if err := json.Unmarshal(data, &s); err != nil {
+			return nil
+		}
+		return &pricing.FlatStrategy{
+			Amount: shared.Money{Amount: s.Amount.Amount, Currency: s.Amount.Currency},
+		}
+	}
+
+	return nil
 }

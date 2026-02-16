@@ -2,7 +2,6 @@ package rate
 
 import (
 	"github.com/google/uuid"
-	"github.com/sam8helloworld/tms-poc/internal/network/domain/route"
 	"github.com/sam8helloworld/tms-poc/internal/shared"
 )
 
@@ -15,15 +14,8 @@ type ApplyContractToRateInput struct {
 	// 反映する料金表のID（空の場合は契約内の全Tariffを反映）
 	TariffIDs []uuid.UUID
 
-	// 作成される全RateEntryに適用するルート範囲
-	RouteScope RouteScopeInput
-}
-
-// RouteScopeInput: ルート範囲の入力DTO
-type RouteScopeInput struct {
-	OriginID      *route.LocationID    // nil = 全Origin
-	DestinationID *route.LocationID    // nil = 全Destination
-	TransportMode *shared.TransportMode // nil = 全モード
+	// 反映するLineItemのID（空の場合は対象Tariff内の全LineItemを反映）
+	TariffLineItemIDs []uuid.UUID
 }
 
 // ApplyContractToRateOutput: 契約反映ユースケースの出力DTO
@@ -38,9 +30,16 @@ type ApplyContractToRateOutput struct {
 
 // AddedEntryDetail: 追加されたエントリの詳細
 type AddedEntryDetail struct {
-	EntryID    uuid.UUID
-	TariffID   uuid.UUID
-	TariffName string
+	EntryID          uuid.UUID
+	TariffID         uuid.UUID
+	TariffLineItemID uuid.UUID
+	TariffName       string
+	ChargeCode       string
+	Category         string
+	UnitPrice        shared.Money
+	OriginID         *uuid.UUID
+	DestinationID    *uuid.UUID
+	TransportMode    *string
 }
 
 // ApplyContractToRateError: 契約反映時のエラー詳細
@@ -71,20 +70,23 @@ func (e *ApplyContractToRateError) WithDetail(key string, value any) *ApplyContr
 
 // UpdateRateEntryTariffInput: レートエントリのTariff差し替えの入力DTO
 type UpdateRateEntryTariffInput struct {
-	RateID       uuid.UUID // DRAFT状態のレートID
-	EntryID      uuid.UUID // 差し替え対象のエントリID
-	ContractID   uuid.UUID // 新TariffIDが所属する契約ID
-	NewTariffID  uuid.UUID // 新しいTariffID
+	RateID              uuid.UUID // DRAFT状態のレートID
+	EntryID             uuid.UUID // 差し替え対象のエントリID
+	ContractID          uuid.UUID // 新TariffIDが所属する契約ID
+	NewTariffID         uuid.UUID // 新しいTariffID
+	NewTariffLineItemID uuid.UUID // 新しいTariffLineItemID
 }
 
 // UpdateRateEntryTariffOutput: レートエントリのTariff差し替えの出力DTO
 type UpdateRateEntryTariffOutput struct {
-	RateID          uuid.UUID
-	RateStatus      string
-	EntryID         uuid.UUID
-	OldTariffID     uuid.UUID
-	NewTariffID     uuid.UUID
-	TotalEntryCount int
+	RateID              uuid.UUID
+	RateStatus          string
+	EntryID             uuid.UUID
+	OldTariffID         uuid.UUID
+	NewTariffID         uuid.UUID
+	OldTariffLineItemID uuid.UUID
+	NewTariffLineItemID uuid.UUID
+	TotalEntryCount     int
 }
 
 // UpdateRateEntryTariffError: レートエントリTariff差し替え時のエラー詳細

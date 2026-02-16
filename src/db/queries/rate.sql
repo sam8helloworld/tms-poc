@@ -19,8 +19,11 @@ DELETE FROM rates WHERE id = $1;
 SELECT * FROM rate_entries WHERE rate_id = $1;
 
 -- name: InsertRateEntry :exec
-INSERT INTO rate_entries (id, rate_id, provider_id, contract_id, tariff_id, origin_id, destination_id, transport_mode)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
+INSERT INTO rate_entries (
+    id, rate_id, provider_id, contract_id, tariff_id,
+    tariff_line_item_id, origin_id, destination_id, transport_mode,
+    charge_code, category, unit_price_amount, unit_price_currency
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13);
 
 -- name: ListRatesByShipper :many
 SELECT * FROM rates WHERE shipper_id = $1 ORDER BY created_at DESC;

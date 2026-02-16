@@ -57,6 +57,7 @@ type RegisterTariffDirectOutput struct {
 	EffectiveFrom    time.Time
 	EffectiveTo      time.Time
 	LineItemCount    int
+	LineItemIDs      []uuid.UUID // 登録された各LineItemのID
 	TotalTariffCount int
 }
 
@@ -124,6 +125,12 @@ func (uc *RegisterTariffDirectUseCase) Execute(
 	// 6. Tariff件数取得
 	totalCount, _ := uc.tariffRepo.CountByContractID(ctx, input.ContractID)
 
+	// 7. LineItemIDsの収集
+	lineItemIDs := make([]uuid.UUID, len(tariff.LineItems))
+	for i, li := range tariff.LineItems {
+		lineItemIDs[i] = li.ID
+	}
+
 	return &RegisterTariffDirectOutput{
 		ContractID:       c.ID,
 		ContractStatus:   string(c.Status()),
@@ -132,6 +139,7 @@ func (uc *RegisterTariffDirectUseCase) Execute(
 		EffectiveFrom:    tariff.EffectiveDate.From,
 		EffectiveTo:      tariff.EffectiveDate.To,
 		LineItemCount:    len(tariff.LineItems),
+		LineItemIDs:      lineItemIDs,
 		TotalTariffCount: totalCount,
 	}, nil
 }

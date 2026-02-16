@@ -548,6 +548,10 @@ classDiagram
             ProviderID: UUID
             ContractID: UUID
             TariffID: UUID
+            TariffLineItemID: UUID
+            ChargeCode: String
+            Category: String
+            UnitPrice: Money
         }
 
         class RouteScope["ルート適用範囲<br/>(RouteScope)"] {
@@ -1091,6 +1095,8 @@ classDiagram
     RateEntry --> Vendor : 業者参照(ProviderID)
     RateEntry --> ServiceContract : 契約参照
     RateEntry --> Tariff : 料金表参照
+    RateEntry --> TariffLineItem : 明細参照(TariffLineItemID)
+    RateEntry ..> Money : UnitPrice
     RouteScope --> Location : 出発地(任意)
     RouteScope --> Location : 到着地(任意)
     LogisticsResource --> Vendor : 業者参照(ProviderID)
@@ -1176,7 +1182,7 @@ classDiagram
 
     note for Tariff "・独立した集約ルート（ContractIDで契約を参照）<br/>・バージョン管理: 同じ名前でもVersionが異なれば別レコード<br/>・Version=1, BaseVersionID=nil: 初版<br/>・Version>1, BaseVersionID設定: 改定版<br/>・EventRecorder埋め込みでドメインイベント記録<br/>・CalculateCharges: CalculationRequestに基づき各費目のコストを計算<br/>　- Scope判定でスキップ/適用を振り分け<br/>　- 複数通貨混在を許容し通貨別に集計"
 
-    note for Rate "・ステータス遷移: DRAFT → ACTIVE → EXPIRED<br/>・複数業者のTariffからルート単位で選択・組み合わせた社内レート<br/>・DRAFT状態: エントリ追加・削除・Tariff差し替え可能<br/>・ACTIVE状態: エントリの変更不可<br/>・entries, statusフィールドはprivate、getter経由でアクセス"
+    note for Rate "・ステータス遷移: DRAFT → ACTIVE → EXPIRED<br/>・複数業者のTariffからLineItem単位で選択・組み合わせた社内レート<br/>・DRAFT状態: エントリ追加・削除・LineItem差し替え可能<br/>・ACTIVE状態: エントリの変更不可<br/>・RateEntryはTariff LineItem粒度（ChargeCode, UnitPriceをデノーマライズ）<br/>・entries, statusフィールドはprivate、getter経由でアクセス"
 
     note for Shipment "・計画（PlannedRoute）の管理者<br/>・StandardRouteIDで基準とした標準ルートを追跡可能<br/>・TrackingUnitへの参照はIDのみ保持（集約境界）<br/>・ShipmentStatusはTrackingUnitの状態から導出（Derived Status）<br/>・execution: 書類を通じて確定した業務的事実をマイルストーンとして蓄積<br/>・trackingUnitIDs, status, cost, executionフィールドはprivate、getter経由でアクセス"
 
@@ -1281,7 +1287,10 @@ classDiagram
   - 荷主が複数業者のTariffからルート単位で選択・組み合わせた通期レート
   - RateStatus: DRAFT（作成中）→ ACTIVE（使用可能）→ EXPIRED（期限切れ）
   - `status`, `entries` フィールドはprivateでgetter経由でアクセス
-- **RateEntry**: レートの構成要素（特定の業者の特定のTariffをまるごと採用）
+- **RateEntry**: レートの構成要素（Tariff LineItem粒度でルート・単価を保持）
+  - TariffLineItemID参照によりシミュレーション時にTariffをロードして計算可能
+  - ChargeCode, Category, UnitPriceをデノーマライズ（ACL経由で設定）
+  - RouteScopeにACL経由で具体的なOrigin/Dest/Modeを設定
 - **RouteScope**: レートエントリの適用ルート範囲（値オブジェクト）
 - **LogisticsResource**: レート・計画コンテキストにおける物流企業（能力とコストの提供者）
   - "誰が運べるか"ではなく"何を運べるか"に焦点を当てたモデル

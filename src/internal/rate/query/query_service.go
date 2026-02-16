@@ -24,3 +24,7 @@ func (s *RateQueryService) GetRate(ctx context.Context, id uuid.UUID) (sqlcgen.R
 func (s *RateQueryService) ListRatesByShipper(ctx context.Context, shipperID uuid.UUID) ([]sqlcgen.Rate, error) {
 	return s.q.ListRatesByShipper(ctx, shipperID)
 }
+
+func (s *RateQueryService) ListRateEntries(ctx context.Context, rateID uuid.UUID) ([]sqlcgen.RateEntry, error) {
+	return s.q.ListRateEntriesByRateID(ctx, rateID)
+}

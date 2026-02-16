@@ -99,7 +99,7 @@ func (s *SourcingBidScenario) Run(ctx context.Context, deps *ScenarioDeps, pool 
 	}
 
 	// Step 6: 契約のTariffをレートに反映
-	err = s.step6ApplyContractsToRate(ctx, deps, rateOutput.RateID, winners)
+	err = s.step6ApplyContractsToRate(ctx, deps, rateOutput.RateID, winners, routes)
 	if err != nil {
 		return fmt.Errorf("step 6: %w", err)
 	}
@@ -339,11 +339,12 @@ func (s *SourcingBidScenario) step2RegisterTariffs(
 			return nil, fmt.Errorf("register tariff for %s: %w", v.name, err)
 		}
 
-		// 各ルートに同じ TariffID を割り当て、価格は個別に保持
+		// 各ルートにTariffID + LineItemIDを割り当て、価格は個別に保持
 		for ri, price := range prices {
 			tariffMap[v.name][ri] = tariffResult{
-				tariffID: output.TariffID,
-				price:    price,
+				tariffID:   output.TariffID,
+				lineItemID: output.LineItemIDs[ri],
+				price:      price,
 			}
 		}
 
@@ -376,15 +377,19 @@ func (s *SourcingBidScenario) step2RegisterTariffs(
 }
 
 type tariffResult struct {
-	tariffID uuid.UUID
-	price    decimal.Decimal
+	tariffID   uuid.UUID
+	lineItemID uuid.UUID
+	price      decimal.Decimal
 }
 
 type routeWinner struct {
-	vendorIdx  int
-	vendorName string
-	routeIdx   int
-	contractID uuid.UUID
+	vendorIdx       int
+	vendorName      string
+	routeIdx        int
+	contractID      uuid.UUID
+	tariffID        uuid.UUID
+	tariffLineItemID uuid.UUID
+	unitPrice       decimal.Decimal
 }
 
 func (s *SourcingBidScenario) step3CompareTariffs(
@@ -437,10 +442,14 @@ func (s *SourcingBidScenario) step3CompareTariffs(
 		}
 		fmt.Printf("│ %s\n", bestName)
 
+		bestResult := tariffMap[bestName][ri]
 		winners = append(winners, routeWinner{
-			vendorIdx:  bestIdx,
-			vendorName: bestName,
-			routeIdx:   ri,
+			vendorIdx:        bestIdx,
+			vendorName:       bestName,
+			routeIdx:         ri,
+			tariffID:         bestResult.tariffID,
+			tariffLineItemID: bestResult.lineItemID,
+			unitPrice:        bestResult.price,
 		})
 	}
 
@@ -576,66 +585,72 @@ func (s *SourcingBidScenario) step6ApplyContractsToRate(
 	deps *ScenarioDeps,
 	rateID uuid.UUID,
 	winners []routeWinner,
+	routes []routeDef,
 ) error {
 	fmt.Println("[Step 6] Applying contracts to rate...")
 
-	// winnersから勝ったvendorの契約IDを重複なく収集
-	appliedContracts := make(map[uuid.UUID]bool)
+	// winnersをcontractIDでグループ化し、各契約に対してLineItemIDsフィルタ付きで適用
+	type contractGroup struct {
+		contractID      uuid.UUID
+		tariffLineItemIDs []uuid.UUID
+	}
+	groupMap := make(map[uuid.UUID]*contractGroup)
+	var groupOrder []uuid.UUID
 
 	for _, w := range winners {
 		contractID := w.contractID
-		if appliedContracts[contractID] {
-			continue
+		if _, ok := groupMap[contractID]; !ok {
+			groupMap[contractID] = &contractGroup{contractID: contractID}
+			groupOrder = append(groupOrder, contractID)
 		}
-		appliedContracts[contractID] = true
+		groupMap[contractID].tariffLineItemIDs = append(groupMap[contractID].tariffLineItemIDs, w.tariffLineItemID)
+	}
+
+	var allAddedEntries []rateapp.AddedEntryDetail
+	for _, contractID := range groupOrder {
+		group := groupMap[contractID]
 
 		input := rateapp.ApplyContractToRateInput{
-			RateID:     rateID,
-			ContractID: contractID,
+			RateID:            rateID,
+			ContractID:        contractID,
+			TariffLineItemIDs: group.tariffLineItemIDs,
 		}
 
 		output, err := deps.ApplyContractToRateUC.Execute(ctx, input)
 		if err != nil {
 			return fmt.Errorf("apply contract %s: %w", contractID.String()[:8], err)
 		}
-		fmt.Printf("  → ContractID %s のTariffを適用（累計エントリ数: %d）\n",
-			contractID.String()[:8], output.TotalEntryCount)
+		allAddedEntries = append(allAddedEntries, output.AddedEntries...)
+		fmt.Printf("  → ContractID %s の %d エントリを適用（累計: %d）\n",
+			contractID.String()[:8], len(output.AddedEntries), output.TotalEntryCount)
 	}
 
-	// 画面イメージ: レートエントリ一覧
-	// sqlcgenを直接使うためにpoolは持っていないのでRateQueryのGetRateを使い件数を表示
-	rate, err := deps.RateQuery.GetRate(ctx, rateID)
-	if err == nil {
-		fmt.Println()
-		fmt.Println("  ┌─ [レート管理画面] レートエントリ一覧 ─────────────────────────")
-		fmt.Printf("  │  Rate: %s  Status: %s\n", rate.Name, string(rate.Status))
-		fmt.Println("  │ " + repeatChar('-', 60))
-		fmt.Printf("  │  %-36s  %-36s\n", "ContractID", "TariffID")
-		fmt.Println("  │ " + repeatChar('-', 60))
+	// 画面イメージ: レートカード
+	fmt.Println()
+	fmt.Println("  ┌─ [レートカード] ルート別レート一覧 ─────────────────────────────────────────────────────────────")
+	fmt.Printf("  │ %-35s│ %-12s│ %-8s│ %s\n", "Route", "Provider", "Charge", "UnitPrice")
+	fmt.Printf("  │%s┼%s┼%s┼%s\n", repeatChar('-', 36), repeatChar('-', 13), repeatChar('-', 9), repeatChar('-', 16))
 
-		// 各contract→tariff のマッピングをwinnersから表示
-		seen := make(map[uuid.UUID]bool)
-		entryCount := 0
-		for _, w := range winners {
-			if seen[w.contractID] {
-				continue
+	// winnersの順序でルートごとに表示
+	for i, w := range winners {
+		routeName := routes[w.routeIdx].name
+		// 対応するAddedEntryDetailを見つける
+		for _, entry := range allAddedEntries {
+			if entry.TariffLineItemID == w.tariffLineItemID {
+				fmt.Printf("  │ %-35s│ %-12s│ %-8s│ $%s %s\n",
+					truncate(routeName, 35),
+					truncate(w.vendorName, 12),
+					entry.ChargeCode,
+					entry.UnitPrice.Amount.StringFixed(2),
+					entry.UnitPrice.Currency,
+				)
+				break
 			}
-			seen[w.contractID] = true
 		}
-
-		// エントリ情報はUseCaseの返値から集積して表示
-		entryCount = 0
-		for _, w := range winners {
-			fmt.Printf("  │  %-36s  %-36s\n",
-				w.contractID.String()[:8]+"...",
-				"(TariffID from contract)",
-			)
-			entryCount++
-		}
-
-		fmt.Printf("  └─ 計 %d エントリ追加（各ルートのTariffが適用済み）\n", entryCount)
-		fmt.Println()
+		_ = i
 	}
+	fmt.Printf("  └─ 計 %d エントリ（ルート別最安レート）\n", len(allAddedEntries))
+	fmt.Println()
 
 	return nil
 }

@@ -895,14 +895,19 @@ type Rate struct {
 }
 
 type RateEntry struct {
-	ID            uuid.UUID         `db:"id" json:"id"`
-	RateID        uuid.UUID         `db:"rate_id" json:"rate_id"`
-	ProviderID    uuid.UUID         `db:"provider_id" json:"provider_id"`
-	ContractID    uuid.UUID         `db:"contract_id" json:"contract_id"`
-	TariffID      uuid.UUID         `db:"tariff_id" json:"tariff_id"`
-	OriginID      pgtype.UUID       `db:"origin_id" json:"origin_id"`
-	DestinationID pgtype.UUID       `db:"destination_id" json:"destination_id"`
-	TransportMode NullTransportMode `db:"transport_mode" json:"transport_mode"`
+	ID                uuid.UUID         `db:"id" json:"id"`
+	RateID            uuid.UUID         `db:"rate_id" json:"rate_id"`
+	ProviderID        uuid.UUID         `db:"provider_id" json:"provider_id"`
+	ContractID        uuid.UUID         `db:"contract_id" json:"contract_id"`
+	TariffID          uuid.UUID         `db:"tariff_id" json:"tariff_id"`
+	OriginID          pgtype.UUID       `db:"origin_id" json:"origin_id"`
+	DestinationID     pgtype.UUID       `db:"destination_id" json:"destination_id"`
+	TransportMode     NullTransportMode `db:"transport_mode" json:"transport_mode"`
+	TariffLineItemID  uuid.UUID         `db:"tariff_line_item_id" json:"tariff_line_item_id"`
+	ChargeCode        string            `db:"charge_code" json:"charge_code"`
+	Category          string            `db:"category" json:"category"`
+	UnitPriceAmount   decimal.Decimal   `db:"unit_price_amount" json:"unit_price_amount"`
+	UnitPriceCurrency string            `db:"unit_price_currency" json:"unit_price_currency"`
 }
 
 type ServiceContract struct {

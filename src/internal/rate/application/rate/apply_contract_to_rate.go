@@ -5,9 +5,11 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/sam8helloworld/tms-poc/internal/network/domain/route"
+	domainrate "github.com/sam8helloworld/tms-poc/internal/rate/domain/rate"
+	"github.com/sam8helloworld/tms-poc/internal/shared"
 	"github.com/sam8helloworld/tms-poc/internal/sourcing/domain/contract"
 	"github.com/sam8helloworld/tms-poc/internal/sourcing/domain/pricing"
-	domainrate "github.com/sam8helloworld/tms-poc/internal/rate/domain/rate"
 )
 
 // ApplyContractToRateUseCase: 契約反映ユースケース
@@ -60,7 +62,7 @@ func (uc *ApplyContractToRateUseCase) Execute(
 	}
 
 	// 5. 各料金表に対してRateEntryを作成しレートに追加
-	addedEntries, err := uc.addEntriesToRate(r, c, targetTariffs, input.RouteScope)
+	addedEntries, err := uc.addEntriesToRate(r, c, targetTariffs, input.TariffLineItemIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -177,43 +179,86 @@ func (uc *ApplyContractToRateUseCase) resolveTargetTariffs(
 	return result, nil
 }
 
-// addEntriesToRate: 料金表ごとにRateEntryを作成しレートに追加
+// addEntriesToRate: 料金表のLineItem単位でRateEntryを作成しレートに追加（ACL経由）
 func (uc *ApplyContractToRateUseCase) addEntriesToRate(
 	r *domainrate.Rate,
 	c *contract.ServiceContract,
 	tariffs []*pricing.Tariff,
-	scopeInput RouteScopeInput,
+	lineItemFilter []uuid.UUID,
 ) ([]AddedEntryDetail, error) {
-	routeScope := domainrate.RouteScope{
-		OriginID:      scopeInput.OriginID,
-		DestinationID: scopeInput.DestinationID,
-		TransportMode: scopeInput.TransportMode,
+	// LineItemIDフィルタをmapに変換
+	filterSet := make(map[uuid.UUID]bool, len(lineItemFilter))
+	for _, id := range lineItemFilter {
+		filterSet[id] = true
 	}
 
-	addedEntries := make([]AddedEntryDetail, 0, len(tariffs))
+	addedEntries := make([]AddedEntryDetail, 0)
 
 	for _, tariff := range tariffs {
-		entry := &domainrate.RateEntry{
-			ProviderID: c.ProviderID,
-			ContractID: c.ID,
-			TariffID:   tariff.ID,
-			RouteScope: routeScope,
-		}
+		// ACL経由でLineItem情報を抽出
+		rateableItems := pricing.ExtractRateableItems(tariff)
 
-		if err := r.AddEntry(entry); err != nil {
-			return nil, NewApplyContractToRateError(
-				"ADD_ENTRY_ERROR",
-				fmt.Sprintf("failed to add entry for tariff %s: %s", tariff.ID, err.Error()),
-			).
-				WithDetail("tariffID", tariff.ID).
-				WithDetail("rateID", r.ID)
-		}
+		for _, item := range rateableItems {
+			// フィルタが指定されている場合、一致するもののみ処理
+			if len(filterSet) > 0 && !filterSet[item.LineItemID] {
+				continue
+			}
 
-		addedEntries = append(addedEntries, AddedEntryDetail{
-			EntryID:    entry.ID,
-			TariffID:   tariff.ID,
-			TariffName: tariff.Name,
-		})
+			// RouteScopeの構築
+			var routeScope domainrate.RouteScope
+			if item.OriginID != nil {
+				lid := route.LocationID(*item.OriginID)
+				routeScope.OriginID = &lid
+			}
+			if item.DestinationID != nil {
+				lid := route.LocationID(*item.DestinationID)
+				routeScope.DestinationID = &lid
+			}
+			if item.TransportMode != nil {
+				m := shared.TransportMode(*item.TransportMode)
+				routeScope.TransportMode = &m
+			}
+
+			// UnitPriceの設定（nilの場合はゼロ値USD）
+			unitPrice := shared.ZeroMoney("USD")
+			if item.UnitPrice != nil {
+				unitPrice = *item.UnitPrice
+			}
+
+			entry := &domainrate.RateEntry{
+				ProviderID:       c.ProviderID,
+				ContractID:       c.ID,
+				TariffID:         tariff.ID,
+				TariffLineItemID: item.LineItemID,
+				RouteScope:       routeScope,
+				ChargeCode:       item.ChargeCode,
+				Category:         item.Category,
+				UnitPrice:        unitPrice,
+			}
+
+			if err := r.AddEntry(entry); err != nil {
+				return nil, NewApplyContractToRateError(
+					"ADD_ENTRY_ERROR",
+					fmt.Sprintf("failed to add entry for tariff %s line item %s: %s", tariff.ID, item.LineItemID, err.Error()),
+				).
+					WithDetail("tariffID", tariff.ID).
+					WithDetail("lineItemID", item.LineItemID).
+					WithDetail("rateID", r.ID)
+			}
+
+			addedEntries = append(addedEntries, AddedEntryDetail{
+				EntryID:          entry.ID,
+				TariffID:         tariff.ID,
+				TariffLineItemID: item.LineItemID,
+				TariffName:       tariff.Name,
+				ChargeCode:       item.ChargeCode,
+				Category:         item.Category,
+				UnitPrice:        unitPrice,
+				OriginID:         item.OriginID,
+				DestinationID:    item.DestinationID,
+				TransportMode:    item.TransportMode,
+			})
+		}
 	}
 
 	return addedEntries, nil

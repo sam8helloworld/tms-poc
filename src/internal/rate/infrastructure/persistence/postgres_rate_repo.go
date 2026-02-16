@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
 	"github.com/sam8helloworld/tms-poc/internal/network/domain/route"
 	"github.com/sam8helloworld/tms-poc/internal/rate/domain/rate"
 	"github.com/sam8helloworld/tms-poc/internal/shared"
@@ -67,10 +68,15 @@ func (r *PostgresRateRepo) Save(ctx context.Context, rt *rate.Rate) error {
 		}
 
 		_, err = tx.Exec(ctx, `
-			INSERT INTO rate_entries (id, rate_id, provider_id, contract_id, tariff_id, origin_id, destination_id, transport_mode)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			INSERT INTO rate_entries (
+				id, rate_id, provider_id, contract_id, tariff_id,
+				tariff_line_item_id, origin_id, destination_id, transport_mode,
+				charge_code, category, unit_price_amount, unit_price_currency
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 			entry.ID, rt.ID, entry.ProviderID, entry.ContractID, entry.TariffID,
-			originID, destID, mode,
+			entry.TariffLineItemID, originID, destID, mode,
+			entry.ChargeCode, entry.Category,
+			entry.UnitPrice.Amount, entry.UnitPrice.Currency,
 		)
 		if err != nil {
 			return fmt.Errorf("insert entry: %w", err)
@@ -161,7 +167,9 @@ func scanRateHeader(s scannable) (*rate.Rate, error) {
 
 func (r *PostgresRateRepo) loadEntries(ctx context.Context, rateID uuid.UUID) ([]*rate.RateEntry, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, provider_id, contract_id, tariff_id, origin_id, destination_id, transport_mode
+		SELECT id, provider_id, contract_id, tariff_id,
+			tariff_line_item_id, origin_id, destination_id, transport_mode,
+			charge_code, category, unit_price_amount, unit_price_currency
 		FROM rate_entries WHERE rate_id = $1`, rateID)
 	if err != nil {
 		return nil, err
@@ -171,13 +179,16 @@ func (r *PostgresRateRepo) loadEntries(ctx context.Context, rateID uuid.UUID) ([
 	var entries []*rate.RateEntry
 	for rows.Next() {
 		var (
-			entry    rate.RateEntry
-			originID *uuid.UUID
-			destID   *uuid.UUID
-			mode     *string
+			entry             rate.RateEntry
+			originID          *uuid.UUID
+			destID            *uuid.UUID
+			mode              *string
+			unitPriceAmount   decimal.Decimal
+			unitPriceCurrency string
 		)
 		err := rows.Scan(&entry.ID, &entry.ProviderID, &entry.ContractID, &entry.TariffID,
-			&originID, &destID, &mode)
+			&entry.TariffLineItemID, &originID, &destID, &mode,
+			&entry.ChargeCode, &entry.Category, &unitPriceAmount, &unitPriceCurrency)
 		if err != nil {
 			return nil, err
 		}
@@ -194,6 +205,8 @@ func (r *PostgresRateRepo) loadEntries(ctx context.Context, rateID uuid.UUID) ([
 			m := shared.TransportMode(*mode)
 			entry.RouteScope.TransportMode = &m
 		}
+
+		entry.UnitPrice = shared.Money{Amount: unitPriceAmount, Currency: unitPriceCurrency}
 
 		entries = append(entries, &entry)
 	}

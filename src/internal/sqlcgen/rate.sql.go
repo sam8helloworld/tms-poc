@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 )
 
 const deleteRate = `-- name: DeleteRate :exec
@@ -81,19 +82,27 @@ func (q *Queries) InsertRate(ctx context.Context, arg InsertRateParams) error {
 }
 
 const insertRateEntry = `-- name: InsertRateEntry :exec
-INSERT INTO rate_entries (id, rate_id, provider_id, contract_id, tariff_id, origin_id, destination_id, transport_mode)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO rate_entries (
+    id, rate_id, provider_id, contract_id, tariff_id,
+    tariff_line_item_id, origin_id, destination_id, transport_mode,
+    charge_code, category, unit_price_amount, unit_price_currency
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 `
 
 type InsertRateEntryParams struct {
-	ID            uuid.UUID         `db:"id" json:"id"`
-	RateID        uuid.UUID         `db:"rate_id" json:"rate_id"`
-	ProviderID    uuid.UUID         `db:"provider_id" json:"provider_id"`
-	ContractID    uuid.UUID         `db:"contract_id" json:"contract_id"`
-	TariffID      uuid.UUID         `db:"tariff_id" json:"tariff_id"`
-	OriginID      pgtype.UUID       `db:"origin_id" json:"origin_id"`
-	DestinationID pgtype.UUID       `db:"destination_id" json:"destination_id"`
-	TransportMode NullTransportMode `db:"transport_mode" json:"transport_mode"`
+	ID                uuid.UUID         `db:"id" json:"id"`
+	RateID            uuid.UUID         `db:"rate_id" json:"rate_id"`
+	ProviderID        uuid.UUID         `db:"provider_id" json:"provider_id"`
+	ContractID        uuid.UUID         `db:"contract_id" json:"contract_id"`
+	TariffID          uuid.UUID         `db:"tariff_id" json:"tariff_id"`
+	TariffLineItemID  uuid.UUID         `db:"tariff_line_item_id" json:"tariff_line_item_id"`
+	OriginID          pgtype.UUID       `db:"origin_id" json:"origin_id"`
+	DestinationID     pgtype.UUID       `db:"destination_id" json:"destination_id"`
+	TransportMode     NullTransportMode `db:"transport_mode" json:"transport_mode"`
+	ChargeCode        string            `db:"charge_code" json:"charge_code"`
+	Category          string            `db:"category" json:"category"`
+	UnitPriceAmount   decimal.Decimal   `db:"unit_price_amount" json:"unit_price_amount"`
+	UnitPriceCurrency string            `db:"unit_price_currency" json:"unit_price_currency"`
 }
 
 func (q *Queries) InsertRateEntry(ctx context.Context, arg InsertRateEntryParams) error {
@@ -103,9 +112,14 @@ func (q *Queries) InsertRateEntry(ctx context.Context, arg InsertRateEntryParams
 		arg.ProviderID,
 		arg.ContractID,
 		arg.TariffID,
+		arg.TariffLineItemID,
 		arg.OriginID,
 		arg.DestinationID,
 		arg.TransportMode,
+		arg.ChargeCode,
+		arg.Category,
+		arg.UnitPriceAmount,
+		arg.UnitPriceCurrency,
 	)
 	return err
 }
@@ -144,7 +158,7 @@ func (q *Queries) ListActiveRatesByShipper(ctx context.Context, shipperID uuid.U
 }
 
 const listRateEntriesByRateID = `-- name: ListRateEntriesByRateID :many
-SELECT id, rate_id, provider_id, contract_id, tariff_id, origin_id, destination_id, transport_mode FROM rate_entries WHERE rate_id = $1
+SELECT id, rate_id, provider_id, contract_id, tariff_id, origin_id, destination_id, transport_mode, tariff_line_item_id, charge_code, category, unit_price_amount, unit_price_currency FROM rate_entries WHERE rate_id = $1
 `
 
 func (q *Queries) ListRateEntriesByRateID(ctx context.Context, rateID uuid.UUID) ([]RateEntry, error) {
@@ -165,6 +179,11 @@ func (q *Queries) ListRateEntriesByRateID(ctx context.Context, rateID uuid.UUID)
 			&i.OriginID,
 			&i.DestinationID,
 			&i.TransportMode,
+			&i.TariffLineItemID,
+			&i.ChargeCode,
+			&i.Category,
+			&i.UnitPriceAmount,
+			&i.UnitPriceCurrency,
 		); err != nil {
 			return nil, err
 		}

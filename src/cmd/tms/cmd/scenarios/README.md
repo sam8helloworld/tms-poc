@@ -40,7 +40,7 @@ cd src && go run ./cmd/tms scenario run <scenario-name>
 | Step 3 | ルート毎の料金比較（表示） | 集計・表示ロジック |
 | Step 4 | 最安業者の契約をCONTRACTED化 | `AwardBidContractUseCase` |
 | Step 5 | DRAFTレート作成 | `CreateRateUseCase` |
-| Step 6 | 契約TariffをレートEntryに反映 | `ApplyContractToRateUseCase` |
+| Step 6 | 契約TariffのLineItemをレートEntryに反映（ルート別） | `ApplyContractToRateUseCase` (ACL経由) |
 | Step 7 | レートをACTIVE化 | `ActivateRateUseCase` |
 
 #### Setup で作成するマスターデータ
@@ -118,7 +118,18 @@ cd src && go run ./cmd/tms scenario run <scenario-name>
 
 [Step 5] Creating rate "2026 H1 Rate"... done (DRAFT)
 
-[Step 6] Applying contracts to rate... 10 rate entries added
+[Step 6] Applying contracts to rate...
+  → ContractID a1b2c3d4 の 3 エントリを適用（累計: 3）
+  → ContractID e5f6g7h8 の 5 エントリを適用（累計: 8）
+  → ContractID i9j0k1l2 の 2 エントリを適用（累計: 10）
+
+  ┌─ [レートカード] ルート別レート一覧 ────────────────────────────────────
+  │ Route                              │ Provider    │ Charge  │ UnitPrice
+  │────────────────────────────────────┼─────────────┼─────────┼────────────
+  │ Tokyo → Shanghai (OCEAN)           │ FWD Beta    │ OFT     │ $980.00 USD
+  │ Tokyo → Singapore (OCEAN)          │ FWD Alpha   │ OFT     │ $750.00 USD
+  │ ...                                │ ...         │ ...     │ ...
+  └─ 計 10 エントリ（ルート別最安レート）
 
 [Step 7] Activating rate... done (ACTIVE)
 

@@ -93,6 +93,12 @@ func (r *Rate) AddEntry(entry *RateEntry) error {
 	if entry.TariffID == uuid.Nil {
 		return shared.NewDomainError(shared.ErrInvalidArgument, "tariffID is required")
 	}
+	if entry.TariffLineItemID == uuid.Nil {
+		return shared.NewDomainError(shared.ErrInvalidArgument, "tariffLineItemID is required")
+	}
+	if entry.ChargeCode == "" {
+		return shared.NewDomainError(shared.ErrInvalidArgument, "chargeCode is required")
+	}
 
 	if entry.ID == uuid.Nil {
 		entry.ID = uuid.New()
@@ -147,21 +153,40 @@ func (r *Rate) MarkAsExpired() error {
 	return nil
 }
 
-// ReplaceEntryTariff: エントリのTariffIDを新しいTariffIDに差し替え（DRAFT状態でのみ可）
-func (r *Rate) ReplaceEntryTariff(entryID uuid.UUID, newTariffID uuid.UUID) error {
+// RateEntryReplacement: エントリ差し替え時の新しい値
+type RateEntryReplacement struct {
+	TariffID         uuid.UUID
+	TariffLineItemID uuid.UUID
+	RouteScope       RouteScope
+	ChargeCode       string
+	Category         string
+	UnitPrice        shared.Money
+}
+
+// ReplaceEntryLineItem: エントリのLineItem情報を差し替え（DRAFT状態でのみ可）
+func (r *Rate) ReplaceEntryLineItem(entryID uuid.UUID, replacement RateEntryReplacement) error {
 	if r.status != RateStatusDraft {
 		return shared.NewDomainError(shared.ErrInvalidState, "entry tariffs can only be replaced in DRAFT status")
 	}
-	if newTariffID == uuid.Nil {
+	if replacement.TariffID == uuid.Nil {
 		return shared.NewDomainError(shared.ErrInvalidArgument, "new tariffID is required")
+	}
+	if replacement.TariffLineItemID == uuid.Nil {
+		return shared.NewDomainError(shared.ErrInvalidArgument, "new tariffLineItemID is required")
 	}
 
 	for _, entry := range r.entries {
 		if entry.ID == entryID {
 			oldTariffID := entry.TariffID
-			entry.TariffID = newTariffID
+			oldLineItemID := entry.TariffLineItemID
+			entry.TariffID = replacement.TariffID
+			entry.TariffLineItemID = replacement.TariffLineItemID
+			entry.RouteScope = replacement.RouteScope
+			entry.ChargeCode = replacement.ChargeCode
+			entry.Category = replacement.Category
+			entry.UnitPrice = replacement.UnitPrice
 			r.UpdatedAt = time.Now()
-			r.RecordEvent(NewRateEntryTariffReplaced(r.ID, entryID, oldTariffID, newTariffID))
+			r.RecordEvent(NewRateEntryTariffReplaced(r.ID, entryID, oldTariffID, replacement.TariffID, oldLineItemID, replacement.TariffLineItemID))
 			return nil
 		}
 	}
@@ -181,13 +206,17 @@ func (r *Rate) FindEntriesForRoute(originID, destID route.LocationID, mode share
 }
 
 // RateEntry: レートの構成要素
-// あるルート範囲に対して、特定の業者の特定のTariffをまるごと採用する
+// 特定の業者のTariff LineItem単位でルート・単価を保持する
 type RateEntry struct {
-	ID         uuid.UUID
-	ProviderID uuid.UUID        // 業者
-	ContractID uuid.UUID        // 契約
-	TariffID   uuid.UUID        // Tariffまるごと採用
-	RouteScope RouteScope       // 適用ルート範囲
+	ID               uuid.UUID
+	ProviderID       uuid.UUID    // 業者
+	ContractID       uuid.UUID    // 契約
+	TariffID         uuid.UUID    // 料金表
+	TariffLineItemID uuid.UUID    // 料金明細ID（計算時のTariffロード用）
+	RouteScope       RouteScope   // 具体的なルート（ACL経由で設定）
+	ChargeCode       string       // 費目コード（例: "OFT"）
+	Category         string       // カテゴリ（例: "FREIGHT"）
+	UnitPrice        shared.Money // 表示用単価スナップショット（ACL経由）
 }
 
 // RouteScope: レートエントリの適用ルート範囲
