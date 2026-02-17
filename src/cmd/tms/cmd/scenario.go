@@ -13,6 +13,7 @@ var scenarioRegistry = []scenarios.Scenario{
 	&scenarios.SourcingBidScenario{},
 	&scenarios.RateBafUpdateScenario{},
 	&scenarios.RateSimulationScenario{},
+	&scenarios.ShipmentDocumentScenario{},
 }
 
 var scenarioCmd = &cobra.Command{
@@ -50,9 +51,15 @@ var scenarioRunCmd = &cobra.Command{
 			ApplyContractToRateUC:   deps.ApplyContractToRateUC,
 			UpdateRateEntryTariffUC: deps.UpdateRateEntryTariffUC,
 			SimulateRateCostUC:      deps.SimulateRateCostUC,
+			CreateShipmentUC:        deps.CreateShipmentUC,
+			RecordMilestoneUC:       deps.RecordMilestoneUC,
+			UploadDocumentUC:        deps.UploadDocumentUC,
+			ConfirmDocumentUC:       deps.ConfirmDocumentUC,
 			NetworkQuery:            deps.NetworkQuery,
 			SourcingQuery:           deps.SourcingQuery,
 			RateQuery:               deps.RateQuery,
+			ShipmentQuery:           deps.ShipmentQuery,
+			DocumentQuery:           deps.DocumentQuery,
 		}
 
 		for _, s := range scenarioRegistry {

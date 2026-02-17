@@ -60,6 +60,10 @@ type Dependencies struct {
 	UpdateRateEntryTariffUC *rateapp.UpdateRateEntryTariffUseCase
 	SimulateRateCostUC      *rateapp.SimulateRateCostUseCase
 
+	// UseCases - Shipment
+	CreateShipmentUC  *shipmentapp.CreateShipmentUseCase
+	RecordMilestoneUC *shipmentapp.RecordMilestoneUseCase
+
 	// UseCases - Tracking
 	RegisterTrackingUC *trackingapp.RegisterShipmentTrackingUseCase
 	SyncTrackingUC     *trackingapp.SyncTrackingEventsUseCase
@@ -120,6 +124,10 @@ func NewDependencies(pool *pgxpool.Pool) *Dependencies {
 		AmendTariffDirectUC:    tariffapp.NewAmendContractTariffDirectUseCase(tariffRepo, contractRepo),
 		AddTariffVersionUC:     tariffapp.NewAddTariffVersionUseCase(contractRepo, tariffRepo, parserFactory),
 		RemoveTariffUC:         tariffapp.NewRemoveTariffFromContractUseCase(contractRepo, tariffRepo),
+
+		// Shipment UseCases
+		CreateShipmentUC:  shipmentapp.NewCreateShipmentUseCase(shipmentRepo),
+		RecordMilestoneUC: shipmentapp.NewRecordMilestoneUseCase(shipmentRepo),
 
 		// Rate UseCases
 		CreateRateUC:            rateapp.NewCreateRateUseCase(rateRepo),

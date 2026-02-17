@@ -206,7 +206,8 @@ Query definitions are in `src/db/queries/`. After modifying queries, run `cd src
 
 POC シナリオは `src/cmd/tms/cmd/scenarios/` に格納されています。
 
-**シナリオを追加・変更する際は必ず `src/cmd/tms/cmd/scenarios/README.md` を更新すること**:
+**シナリオを追加・変更・削除する際は必ず `src/cmd/tms/cmd/scenarios/README.md` を更新すること**:
 - 新規シナリオ追加: シナリオ名・概要・業務フロー表・マスターデータ・出力例を追記
 - 既存シナリオ変更: 変更内容(ステップ説明、フロー表など)を README に反映
+- シナリオ削除: 該当セクションを README から削除
 - README は実装と常に同期された状態を維持する

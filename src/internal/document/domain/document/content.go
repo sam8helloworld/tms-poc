@@ -21,21 +21,21 @@ type DocumentContent interface {
 }
 
 // ==========================================
-// InvoiceContent: インボイスのコンテンツ
+// CommercialInvoiceContent: Commercial Invoiceのコンテンツ
 // ==========================================
 
-// InvoiceContent: インボイスの構造化データ
-type InvoiceContent struct {
+// CommercialInvoiceContent: Commercial Invoiceの構造化データ
+type CommercialInvoiceContent struct {
 	InvoiceNo    string
 	InvoiceDate  time.Time
 	PaymentTerms string
 	TotalAmount  shared.Money
-	LineItems    []InvoiceLineItem
+	LineItems    []CommercialInvoiceLineItem
 	Extension    map[string]interface{} // 各社固有フィールド
 }
 
-// InvoiceLineItem: インボイスの明細行
-type InvoiceLineItem struct {
+// CommercialInvoiceLineItem: Commercial Invoiceの明細行
+type CommercialInvoiceLineItem struct {
 	LineNo      int
 	Description string
 	Quantity    decimal.Decimal
@@ -44,11 +44,11 @@ type InvoiceLineItem struct {
 	HSCode      string
 }
 
-func (c *InvoiceContent) ContentDocType() shared.DocType {
-	return shared.DocTypeInvoice
+func (c *CommercialInvoiceContent) ContentDocType() shared.DocType {
+	return shared.DocTypeCommercialInvoice
 }
 
-func (c *InvoiceContent) Validate() *shared.DomainError {
+func (c *CommercialInvoiceContent) Validate() *shared.DomainError {
 	if c.InvoiceNo == "" {
 		return shared.NewDomainError(shared.ErrInvalidArgument, "invoice number is required")
 	}
@@ -57,6 +57,46 @@ func (c *InvoiceContent) Validate() *shared.DomainError {
 	}
 	if len(c.LineItems) == 0 {
 		return shared.NewDomainError(shared.ErrInvalidArgument, "invoice must have at least one line item")
+	}
+	return nil
+}
+
+// ==========================================
+// FreightInvoiceContent: Freight Invoiceのコンテンツ
+// ==========================================
+
+// FreightInvoiceContent: Freight Invoiceの構造化データ
+type FreightInvoiceContent struct {
+	InvoiceNo    string
+	InvoiceDate  time.Time
+	PaymentTerms string
+	TotalAmount  shared.Money
+	LineItems    []FreightInvoiceLineItem
+	Extension    map[string]interface{}
+}
+
+// FreightInvoiceLineItem: Freight Invoiceの明細行
+type FreightInvoiceLineItem struct {
+	ChargeCode  string
+	Description string
+	Quantity    decimal.Decimal
+	UnitPrice   shared.Money
+	Amount      shared.Money
+}
+
+func (c *FreightInvoiceContent) ContentDocType() shared.DocType {
+	return shared.DocTypeFreightInvoice
+}
+
+func (c *FreightInvoiceContent) Validate() *shared.DomainError {
+	if c.InvoiceNo == "" {
+		return shared.NewDomainError(shared.ErrInvalidArgument, "invoice number is required")
+	}
+	if c.InvoiceDate.IsZero() {
+		return shared.NewDomainError(shared.ErrInvalidArgument, "invoice date is required")
+	}
+	if len(c.LineItems) == 0 {
+		return shared.NewDomainError(shared.ErrInvalidArgument, "freight invoice must have at least one line item")
 	}
 	return nil
 }
@@ -211,8 +251,7 @@ type SILineItem struct {
 }
 
 func (c *ShippingInstructionContent) ContentDocType() shared.DocType {
-	// S/IはDocTypeにないので OTHER扱い、将来的に専用DocType追加を検討
-	return shared.DocTypeOther
+	return shared.DocTypeShippingInstruction
 }
 
 func (c *ShippingInstructionContent) Validate() *shared.DomainError {

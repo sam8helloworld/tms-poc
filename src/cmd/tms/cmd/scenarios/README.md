@@ -362,6 +362,143 @@ cd src && go run ./cmd/tms scenario run <scenario-name>
 
 ---
 
+### `shipment-document` — 輸送案件 書類E2Eフロー
+
+**概要**: 輸送案件を作成し、海上輸送（Tokyo → Shanghai）のE2Eで発生する書類を登録・確認してマイルストーンを蓄積し、輸送完了まで管理するシナリオを実行します。書類の確認がマイルストーン記録とステータス自動遷移をトリガーします。
+
+#### 業務フロー（11ステップ）
+
+| ステップ | 業務 | DocType | Origin | マイルストーン | Status遷移 |
+|---------|------|---------|--------|------------|-----------|
+| Setup | マスターデータ作成（2拠点・1業者） | - | - | - | - |
+| Step 1 | 輸送案件作成 | - | - | ShipmentCreated | → PLANNED |
+| Step 2 | ブッキング確認 | BOOKING_CONFIRMATION | PROVIDER | BOOKING_CONFIRMED | → BOOKED |
+| Step 3 | S/I発行 | SHIPPING_INSTRUCTION | SHIPPER | SHIPPING_INSTRUCTION_ISSUED | - |
+| Step 4 | Commercial Invoice登録 | COMMERCIAL_INVOICE | SHIPPER | - | - |
+| Step 5 | Packing List登録 | PACKING_LIST | SHIPPER | - | - |
+| Step 6 | B/L受領・船積確認 | BILL_OF_LADING | PROVIDER | SHIPPED | → IN_TRANSIT |
+| Step 7 | 輸出通関 | CUSTOMS_DECLARATION | PROVIDER | CUSTOMS_EXPORT_CLEARED | - |
+| Step 8 | 到着通知 | ARRIVAL_NOTICE | PROVIDER | ARRIVED | - |
+| Step 9 | 輸入通関 | CUSTOMS_DECLARATION | PROVIDER | CUSTOMS_IMPORT_CLEARED | - |
+| Step 10 | 配送指図・納品 | DELIVERY_ORDER | PROVIDER | DELIVERED | → COMPLETED |
+| Step 11 | Freight Invoice受領 | FREIGHT_INVOICE | PROVIDER | INVOICE_RECEIVED | - |
+
+#### Setup で作成するマスターデータ
+
+**拠点（2箇所）**
+
+| 名称 | UN/LOCODE | 国 |
+|-----|-----------|---|
+| Tokyo | JPTYO | JP |
+| Shanghai | CNSHA | CN |
+
+**業者（1社）**
+
+| 名称 | 種別 |
+|-----|------|
+| Ocean Express Co. | CARRIER |
+
+#### ステータス自動遷移ルール
+
+マイルストーン記録時に、以下のルールで Shipment ステータスが自動遷移します：
+
+- `BOOKING_CONFIRMED` → PLANNED から BOOKED へ
+- `SHIPPED` → PLANNED/BOOKED から IN_TRANSIT へ
+- `DELIVERED` → 任意の状態から COMPLETED へ
+
+#### 出力例
+
+```
+=== Shipment Document E2E Scenario ===
+
+[Setup] Creating locations and vendor... done
+
+  ┌─ [Setup] マスターデータ ─────────────────────────────
+  │ Origin:      Tokyo (JPTYO)  ID: ebefec2a
+  │ Destination: Shanghai (CNSHA) ID: d76e6ca4
+  │ Vendor:      Ocean Express Co.  ID: e56658fc
+  └──────────────────────────────────────────────────────
+
+[Step 1] 輸送案件作成
+  → Shipment SHP-2026-0001 作成完了
+
+  ┌─ [輸送案件] ──────────────────────────────────────────
+  │ ID:     d11488c1
+  │ No:     SHP-2026-0001
+  │ Status: PLANNED
+  └──────────────────────────────────────────────────────
+
+[Step 2] ブッキング確認
+  → 書類アップロード: booking_confirmation.pdf (ID: 0b4e4100)
+  → 書類確認完了: BOOKING_CONFIRMATION → CONFIRMED
+  → マイルストーン記録: BOOKING_CONFIRMED → Status: BOOKED
+
+[Step 3] S/I発行
+  → 書類アップロード: shipping_instruction.pdf (ID: 17728b67)
+  → 書類確認完了: SHIPPING_INSTRUCTION → CONFIRMED
+  → マイルストーン記録: SHIPPING_INSTRUCTION_ISSUED → Status: BOOKED
+
+[Step 4] Commercial Invoice登録
+  → 書類アップロード: commercial_invoice.pdf (ID: d17c38c1)
+  → 書類確認完了: COMMERCIAL_INVOICE → CONFIRMED
+
+[Step 5] Packing List登録
+  → 書類アップロード: packing_list.pdf (ID: a431df3a)
+  → 書類確認完了: PACKING_LIST → CONFIRMED
+
+[Step 6] B/L受領・船積確認
+  → 書類アップロード: bill_of_lading.pdf (ID: 1328b1d1)
+  → 書類確認完了: BILL_OF_LADING → CONFIRMED
+  → マイルストーン記録: SHIPPED → Status: IN_TRANSIT
+
+[Step 7] 輸出通関
+  → 書類アップロード: export_customs_declaration.pdf (ID: 391624c0)
+  → 書類確認完了: CUSTOMS_DECLARATION → CONFIRMED
+  → マイルストーン記録: CUSTOMS_EXPORT_CLEARED → Status: IN_TRANSIT
+
+[Step 8] 到着通知
+  → 書類アップロード: arrival_notice.pdf (ID: 6b44ab9f)
+  → 書類確認完了: ARRIVAL_NOTICE → CONFIRMED
+  → マイルストーン記録: ARRIVED → Status: IN_TRANSIT
+
+[Step 9] 輸入通関
+  → 書類アップロード: import_customs_declaration.pdf (ID: 0387e4b1)
+  → 書類確認完了: CUSTOMS_DECLARATION → CONFIRMED
+  → マイルストーン記録: CUSTOMS_IMPORT_CLEARED → Status: IN_TRANSIT
+
+[Step 10] 配送指図・納品
+  → 書類アップロード: delivery_order.pdf (ID: 32e0d316)
+  → 書類確認完了: DELIVERY_ORDER → CONFIRMED
+  → マイルストーン記録: DELIVERED → Status: COMPLETED
+
+[Step 11] Freight Invoice受領
+  → 書類アップロード: freight_invoice.pdf (ID: 106d416f)
+  → 書類確認完了: FREIGHT_INVOICE → CONFIRMED
+  → マイルストーン記録: INVOICE_RECEIVED → Status: COMPLETED
+
+  ┌─ [最終結果] 輸送案件 書類・マイルストーン一覧 ────────────
+  │ Shipment ID: d11488c1
+  │
+  │  Step  DocType                   Origin    Milestone                    Status
+  │  ------------------------------------------------------------------------------------------
+  │   1    -                         -         ShipmentCreated              PLANNED
+  │   2    BOOKING_CONFIRMATION      PROVIDER  BOOKING_CONFIRMED            BOOKED
+  │   3    SHIPPING_INSTRUCTION      SHIPPER   SHIPPING_INSTRUCTION_ISSUED  BOOKED
+  │   4    COMMERCIAL_INVOICE        SHIPPER   -                            BOOKED
+  │   5    PACKING_LIST              SHIPPER   -                            BOOKED
+  │   6    BILL_OF_LADING            PROVIDER  SHIPPED                      IN_TRANSIT
+  │   7    CUSTOMS_DECLARATION       PROVIDER  CUSTOMS_EXPORT_CLEARED       IN_TRANSIT
+  │   8    ARRIVAL_NOTICE            PROVIDER  ARRIVED                      IN_TRANSIT
+  │   9    CUSTOMS_DECLARATION       PROVIDER  CUSTOMS_IMPORT_CLEARED       IN_TRANSIT
+  │  10    DELIVERY_ORDER            PROVIDER  DELIVERED                    COMPLETED
+  │  11    FREIGHT_INVOICE           PROVIDER  INVOICE_RECEIVED             COMPLETED
+  └──────────────────────────────────────────────────────────────────────────────────
+
+=== Scenario Complete ===
+```
+
+---
+
 ## 新しいシナリオの追加方法
 
 1. このディレクトリに `my_scenario.go` を作成する

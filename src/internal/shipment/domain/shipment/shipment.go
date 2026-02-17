@@ -218,7 +218,28 @@ func (s *Shipment) RecordMilestone(
 	}
 	s.UpdatedAt = time.Now()
 	s.RecordEvent(NewMilestoneRecorded(s.ID, milestone.ID, milestoneType, sourceDocumentID, sourceDocType))
+	s.deriveStatusFromMilestone(milestoneType)
 	return nil
+}
+
+// deriveStatusFromMilestone: マイルストーン記録に基づいてステータスを自動導出する
+func (s *Shipment) deriveStatusFromMilestone(mt MilestoneType) {
+	newStatus := s.status
+	switch mt {
+	case MilestoneBookingConfirmed:
+		if s.status == StatusPlanned {
+			newStatus = StatusBooked
+		}
+	case MilestoneShipped:
+		if s.status == StatusPlanned || s.status == StatusBooked {
+			newStatus = StatusInTransit
+		}
+	case MilestoneDelivered:
+		newStatus = StatusCompleted
+	}
+	if newStatus != s.status {
+		s.UpdateShipmentStatus(newStatus)
+	}
 }
 
 // AddTrackingUnitID: TrackingUnit IDを追加

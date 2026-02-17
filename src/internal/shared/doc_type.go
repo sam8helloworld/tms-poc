@@ -4,10 +4,12 @@ package shared
 type DocType string
 
 const (
-	DocTypeInvoice              DocType = "INVOICE"
+	DocTypeCommercialInvoice    DocType = "COMMERCIAL_INVOICE"
+	DocTypeFreightInvoice       DocType = "FREIGHT_INVOICE"
 	DocTypePackingList          DocType = "PACKING_LIST"
 	DocTypeBillOfLading         DocType = "BILL_OF_LADING"
 	DocTypeAirWayBill           DocType = "AIR_WAYBILL"
+	DocTypeShippingInstruction  DocType = "SHIPPING_INSTRUCTION"
 	DocTypeArrivalNotice        DocType = "ARRIVAL_NOTICE"
 	DocTypeCustomsDeclaration   DocType = "CUSTOMS_DECLARATION"
 	DocTypeCertificateOfOrigin  DocType = "CERTIFICATE_OF_ORIGIN"
