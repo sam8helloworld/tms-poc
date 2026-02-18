@@ -107,6 +107,7 @@ func (uc *AmendContractTariffDirectUseCase) Execute(
 			ServiceScopeAttrs: li.ScopeAttrs,
 			PricingType:       li.PricingType,
 			PricingAttrs:      li.PricingAttrs,
+			OperatorVendorID:  li.OperatorVendorID,
 		}
 		lineItem, err := converter.convertToLineItem(parsed)
 		if err != nil {

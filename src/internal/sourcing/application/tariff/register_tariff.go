@@ -272,11 +272,12 @@ func (uc *RegisterTariffUseCase) convertToLineItem(
 	}
 
 	return &pricing.TariffLineItem{
-		ID:         uuid.New(),
-		ChargeCode: parsed.ChargeCode,
-		Category:   parsed.Category,
-		Scope:      serviceScope,
-		Logic:      pricingLogic,
+		ID:               uuid.New(),
+		ChargeCode:       parsed.ChargeCode,
+		Category:         parsed.Category,
+		Scope:            serviceScope,
+		Logic:            pricingLogic,
+		OperatorVendorID: parsed.OperatorVendorID,
 	}, nil
 }
 

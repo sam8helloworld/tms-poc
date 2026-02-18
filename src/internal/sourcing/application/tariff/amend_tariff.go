@@ -6,10 +6,10 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/sam8helloworld/tms-poc/internal/sourcing/domain/contract"
-	"github.com/sam8helloworld/tms-poc/internal/sourcing/domain/pricing"
 	"github.com/sam8helloworld/tms-poc/internal/network/domain/route"
 	"github.com/sam8helloworld/tms-poc/internal/shared"
+	"github.com/sam8helloworld/tms-poc/internal/sourcing/domain/contract"
+	"github.com/sam8helloworld/tms-poc/internal/sourcing/domain/pricing"
 )
 
 // AmendContractTariffUseCase: CONTRACTED状態の契約に対して料金表の改定版を追加するユースケース
@@ -127,10 +127,11 @@ func (uc *AmendContractTariffUseCase) Execute(
 		}
 
 		lineItem := pricing.TariffLineItem{
-			ChargeCode: parsedItem.ChargeCode,
-			Category:   parsedItem.Category,
-			Scope:      serviceScope,
-			Logic:      logic,
+			ChargeCode:       parsedItem.ChargeCode,
+			Category:         parsedItem.Category,
+			Scope:            serviceScope,
+			Logic:            logic,
+			OperatorVendorID: parsedItem.OperatorVendorID,
 		}
 
 		if err := newTariff.AddLineItem(lineItem); err != nil {

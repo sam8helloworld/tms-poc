@@ -40,12 +40,13 @@ type RegisterTariffDirectInput struct {
 
 // LineItemInput: 料金明細の入力DTO
 type LineItemInput struct {
-	ChargeCode   string
-	Category     string
-	ScopeType    pricing.ServiceScopeType
-	ScopeAttrs   map[string]string
-	PricingType  pricing.PricingStrategyType
-	PricingAttrs map[string]any
+	ChargeCode       string
+	Category         string
+	ScopeType        pricing.ServiceScopeType
+	ScopeAttrs       map[string]string
+	PricingType      pricing.PricingStrategyType
+	PricingAttrs     map[string]any
+	OperatorVendorID *uuid.UUID // 実際の作業業者（任意）
 }
 
 // RegisterTariffDirectOutput: 構造化データによる料金表登録の出力DTO
@@ -98,12 +99,13 @@ func (uc *RegisterTariffDirectUseCase) Execute(
 	converter := &RegisterTariffUseCase{} // convertToLineItemメソッド再利用
 	for i, li := range input.LineItems {
 		parsed := pricing.ParsedLineItem{
-			ChargeCode:       li.ChargeCode,
-			Category:         li.Category,
-			ServiceScopeType: li.ScopeType,
+			ChargeCode:        li.ChargeCode,
+			Category:          li.Category,
+			ServiceScopeType:  li.ScopeType,
 			ServiceScopeAttrs: li.ScopeAttrs,
-			PricingType:      li.PricingType,
-			PricingAttrs:     li.PricingAttrs,
+			PricingType:       li.PricingType,
+			PricingAttrs:      li.PricingAttrs,
+			OperatorVendorID:  li.OperatorVendorID,
 		}
 		lineItem, err := converter.convertToLineItem(parsed)
 		if err != nil {
