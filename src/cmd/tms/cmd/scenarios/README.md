@@ -232,130 +232,175 @@ cd src && go run ./cmd/tms scenario run <scenario-name>
 === Scenario Complete ===
 ```
 
-### `rate-simulation` — レートコストシミュレーション
+### `rate-simulation` — マルチプロバイダー対応レートコストシミュレーション
 
-**概要**: 入札で確定したACTIVEレートに対して、輸送前にルート・貨物条件（数量・重量・容積）を指定してコストをシミュレーションします。`SimulateRateCostUseCase` は ACL パターンで `TariffCalculator` インターフェースを経由し、Sourcing BC の `Tariff.CalculateCharges()` に料金計算を委譲します。未登録ルートは「輸送不可」として表示されます。
+**概要**: 複数の物流業者がセグメントごとに担当する輸送ルートに対して、ACTIVEレートからコストをシミュレーションします。`SimulateRateCostUseCase` はセグメント単位でエントリを検索し、セグメント×プロバイダー×費目の詳細内訳を生成します。ACL パターンで `TariffCalculator` インターフェースを経由し、Sourcing BC の `Tariff.CalculateCharges()` に料金計算を委譲します。
 
-#### 業務フロー（8ステップ）
+#### 業務パターン（4ルート）
+
+| ルート | パターン | 説明 |
+|-------|---------|------|
+| Route A | マルチプロバイダー (3セグメント) | 輸出側ドレージ → 国際海上 → 輸入側ハンドリング、各区間別業者 |
+| Route B | FWD一括 (1セグメント) | 1社のFWDが全費目を一括担当 |
+| Route C | メイン＋バックアップ (1セグメント) | 同一セグメントに2社が並列登録 |
+| Route D | 未登録 | レートにエントリなし → 輸送不可 |
+
+#### 業務フロー（9ステップ）
 
 | ステップ | 内容 | UseCase / 処理 |
 |---------|------|-----------------|
-| Setup | マスターデータ作成（3拠点・2業者） | LocationRepo・VendorRepo 直接操作 |
-| Step 1 | 2社とのDRAFT契約作成 | `CreateBidContractUseCase` |
-| Step 2 | 各社 Tariff登録（OFT/BAF/THC/CFS × 3ルート） | `RegisterTariffDirectUseCase` |
-| Step 3 | ルート別料金比較・最安業者選定 | 集計・表示ロジック |
-| Step 4 | 契約Award | `AwardBidContractUseCase` |
-| Step 5 | DRAFTレート作成 | `CreateRateUseCase` |
-| Step 6 | 契約のTariffをレートに反映 | `ApplyContractToRateUseCase` |
-| Step 7 | レートをACTIVE化 | `ActivateRateUseCase` |
-| Step 8 | **レートコストシミュレーション** | **`SimulateRateCostUseCase`** |
+| Step 1 | ロケーション作成（6拠点） | LocationRepo 直接操作 |
+| Step 2 | ベンダー作成（4社） | VendorRepo 直接操作 |
+| Step 3 | 4社とのDRAFT契約作成 | `CreateBidContractUseCase` |
+| Step 4 | 各社Tariff登録（担当セグメント分のLineItem） | `RegisterTariffDirectUseCase` |
+| Step 5 | 全契約をCONTRACTED化 | `AwardBidContractUseCase` |
+| Step 6 | DRAFTレート作成 | `CreateRateUseCase` |
+| Step 7 | 全契約のTariffをレートに適用 | `ApplyContractToRateUseCase` |
+| Step 8 | レートをACTIVE化 | `ActivateRateUseCase` |
+| Step 9 | **レートコストシミュレーション（セグメント別詳細表示）** | **`SimulateRateCostUseCase`** |
 
-#### Setup で作成するマスターデータ
+#### マスターデータ
 
-**拠点（3箇所）**
+**拠点（6箇所）**
 
-| 名称 | UN/LOCODE | 国 |
-|-----|-----------|---|
-| Tokyo | JPTYO | JP |
-| Shanghai | CNSHA | CN |
-| Singapore | SGSIN | SG |
+| 名称 | UN/LOCODE | 国 | 種別 |
+|-----|-----------|---|------|
+| Tokyo CY | JPTYC | JP | CONTAINER_YARD |
+| Tokyo Port | JPTYO | JP | PORT |
+| Shanghai Port | CNSHA | CN | PORT |
+| Shanghai CFS | CNSFC | CN | WAREHOUSE |
+| Singapore Port | SGSIN | SG | PORT |
+| Bangkok Port | THBKK | TH | PORT |
 
-**業者（2社）**
+**業者（4社）**
 
-| 名称 | 種別 |
-|-----|------|
-| FWD Alpha | FORWARDER |
-| FWD Beta | FORWARDER |
+| 名称 | 種別 | 役割 |
+|-----|------|------|
+| JP Drayage Co | FORWARDER | 輸出側国内輸送 |
+| Ocean Carrier Alpha | CARRIER | 国際海上輸送 |
+| CN Handler Co | FORWARDER | 輸入側ハンドリング |
+| Global FWD | FORWARDER | フルサービスFWD |
 
-#### 対象ルート（3ルート、全て海上輸送）
+#### ルート構成と担当業者
 
-| # | ルート | OFT基準 (Flat) | BAF基準 (Flat) | THC単価 (Expr) | CFS基本/単価 (Comp) |
-|---|-------|---------------|---------------|---------------|-------------------|
-| 1 | Tokyo → Shanghai | $1,200 | $350 | $0.50/kg | $150 + $0.02/kg |
-| 2 | Shanghai → Singapore | $800 | $200 | $0.40/kg | $120 + $0.015/kg |
-| 3 | Tokyo → Singapore | $1,500 | $400 | $0.60/kg | $180 + $0.025/kg |
+**Route A: Tokyo CY → Shanghai CFS（マルチプロバイダー、3セグメント）**
 
-> 各社の実際の料金は基準価格に±20%のランダム変動が加わります。
-> - **OFT/BAF**: Flat Strategy (Amount × Quantity)
-> - **THC**: Expression Strategy (Chargeable Weight × Rate)
-> - **CFS**: Composite Strategy (Flat Base + Weight × Rate)
+| Seg | 区間 | Mode | 担当業者 | 費目 |
+|-----|------|------|---------|------|
+| 1 | Tokyo CY → Tokyo Port | TRUCK | JP Drayage Co | OFT (Flat: $450) |
+| 2 | Tokyo Port → Shanghai Port | OCEAN | Ocean Carrier Alpha | OFT (Flat: $1,200) + BAF (Flat: $350) |
+| 3 | Shanghai Port → Shanghai CFS | TRUCK | CN Handler Co | OFT (Flat: $380) + THC (Expr) + CFS (Comp) |
 
-#### シミュレーション対象（Step 8）
+**Route B: Tokyo Port → Bangkok Port（FWD一括、1セグメント）**
+
+| Seg | 区間 | Mode | 担当業者 | 費目 |
+|-----|------|------|---------|------|
+| 1 | Tokyo Port → Bangkok Port | OCEAN | Global FWD | OFT + BAF + THC (Expr) + CFS (Comp) |
+
+**Route C: Shanghai Port → Singapore Port（メイン＋バックアップ、1セグメント）**
+
+| Seg | 区間 | Mode | 担当業者 | 費目 |
+|-----|------|------|---------|------|
+| 1 | Shanghai Port → Singapore Port | OCEAN | Ocean Carrier Alpha (main) | OFT ($800) + BAF ($200) |
+| 1 | Shanghai Port → Singapore Port | OCEAN | Global FWD (backup) | OFT ($850) + BAF ($220) |
+
+**Route D: Bangkok Port → Tokyo Port（未登録）** → 輸送不可
+
+#### シミュレーション対象（Step 9）
 
 | # | ルート条件 | 貨物条件 | 期待される結果 |
 |---|----------|---------|---------------|
-| 1 | Tokyo → Shanghai (OCEAN) | 1本/18,000kg/30m³ | ✓ 輸送可能（Tariff計算で金額算出） |
-| 2 | Tokyo → Singapore (OCEAN) | 1本/18,000kg/30m³ | ✓ 輸送可能（Tariff計算で金額算出） |
-| 3 | Singapore → Tokyo (OCEAN) | 1本/18,000kg/30m³ | ✗ 輸送不可（レート未登録ルート） |
+| A | Tokyo CY → Shanghai CFS (3 seg) | 1本/18,000kg/30m³ | ✓ 3社の費目がセグメント別に表示 |
+| B | Tokyo Port → Bangkok Port (1 seg) | 1本/18,000kg/30m³ | ✓ 1社が全費目を担当 |
+| C | Shanghai Port → Singapore Port (1 seg) | 1本/18,000kg/30m³ | ✓ 2社が並列表示、最安プロバイダー判定 |
+| D | Bangkok Port → Tokyo Port (1 seg) | 1本/18,000kg/30m³ | ✗ 輸送不可 |
 
 #### 出力例
 
 ```
-=== Rate Simulation Scenario ===
+=== Multi-Provider Rate Simulation Scenario ===
 
-[Setup] Creating 3 locations... done
-[Setup] Creating 2 vendors... done
+[Step 1] Creating 6 locations...
+[Step 2] Creating 4 vendors...
+[Step 3] Creating DRAFT contracts (1 per vendor)...
+[Step 4] Registering tariffs per vendor...
+  -> JP Drayage Co:       1 line items registered
+  -> Ocean Carrier Alpha: 4 line items registered
+  -> CN Handler Co:       3 line items registered
+  -> Global FWD:          6 line items registered
 
-[Step 1] Creating bid contracts...
-  → FWD Alpha:   contract a1b2c3d4 作成（DRAFT）
-  → FWD Beta:    contract e5f6g7h8 作成（DRAFT）
+[Step 5] Awarding all contracts (DRAFT -> CONTRACTED)...
+[Step 6] Creating rate "2026 H1 Multi-Provider Rate"... done
+[Step 7] Applying all contract tariffs to rate...
+  Total rate entries: 14
 
-[Step 2] Registering tariffs (OFT + BAF × 3 routes per FWD)...
-  → FWD Alpha:   1 tariff registered (6 line items)
-  → FWD Beta:    1 tariff registered (6 line items)
+[Step 8] Activating rate... done (ACTIVE)
 
-[Step 3] Comparing tariffs per route (OFT + BAF total)...
-  ┌─ [入札比較画面] ルート別料金比較 ──────────────────────
-  │ Route                         │ FWD Alpha        │ FWD Beta         │ Winner
-  │ Tokyo → Shanghai (OCEAN)      │ $1480 ★          │ $1620            │ FWD Alpha
-  │ Shanghai → Singapore (OCEAN)  │ $1050            │ $960 ★           │ FWD Beta
-  │ Tokyo → Singapore (OCEAN)     │ $1830            │ $1780 ★          │ FWD Beta
-  └─ ★ = 最安値（OFT + BAF合計）
+[Step 9] Simulating rate cost (cargo: 1x 20DC / 18,000kg / 30m3)...
 
-[Step 4] Awarding contracts...
-  → FWD Alpha:   DRAFT → CONTRACTED (1 routes won)
-  → FWD Beta:    DRAFT → CONTRACTED (2 routes won)
+  Rate: 2026 H1 Multi-Provider Rate (Status: ACTIVE)
 
-[Step 5] Creating rate "2026 H1 Rate"... done
-[Step 6] Applying contracts to rate...
-  → ContractID a1b2c3d4 の 2 エントリを適用（累計: 2）
-  → ContractID e5f6g7h8 の 4 エントリを適用（累計: 6）
+  ┌─ [Route A] Tokyo CY -> Shanghai CFS (3 segments) ✓ 輸送可能 ─────
+  │
+  │  [Seg 1] Tokyo CY -> Tokyo Port (TRUCK)
+  │  ┌ JP Drayage Co
+  │  │  OFT   FREIGHT      $450.00 USD
+  │  └ 小計: $450.00 USD
+  │
+  │  [Seg 2] Tokyo Port -> Shanghai Port (OCEAN)
+  │  ┌ Ocean Carrier Alpha
+  │  │  OFT   FREIGHT      $1200.00 USD
+  │  │  BAF   SURCHARGE    $350.00 USD
+  │  └ 小計: $1550.00 USD
+  │
+  │  [Seg 3] Shanghai Port -> Shanghai CFS (TRUCK)
+  │  ┌ CN Handler Co
+  │  │  OFT   FREIGHT      $380.00 USD
+  │  │  THC   HANDLING     $15000.00 USD
+  │  │  CFS   FREIGHT      $510.00 USD
+  │  └ 小計: $15890.00 USD
+  │
+  │  ----------------------------------------
+  │  ルート合計: $17890.00 USD (3 providers, 6 charges)
+  └──────────────────────────────────────────────────────
 
-[Step 7] Activating rate... done
+  ┌─ [Route B] Tokyo Port -> Bangkok Port (1 segment, FWD bulk) ✓ 輸送可能 ─────
+  │
+  │  [Seg 1] Tokyo Port -> Bangkok Port (OCEAN)
+  │  ┌ Global FWD
+  │  │  OFT   FREIGHT      $1800.00 USD
+  │  │  BAF   SURCHARGE    $450.00 USD
+  │  │  THC   HANDLING     $18000.00 USD
+  │  │  CFS   FREIGHT      $630.00 USD
+  │  └ 小計: $20880.00 USD
+  │
+  │  ----------------------------------------
+  │  ルート合計: $20880.00 USD (1 providers, 4 charges)
+  └──────────────────────────────────────────────────────
 
-[Step 8] Simulating rate cost for transport routes...
-  ※ 輸送前のコスト見積もりを実施します（貨物条件: 1本 20DC / 18,000kg / 30m³）
+  ┌─ [Route C] Shanghai Port -> Singapore Port (1 segment, 2 providers) ✓ 輸送可能 ─────
+  │
+  │  [Seg 1] Shanghai Port -> Singapore Port (OCEAN)
+  │  ┌ Ocean Carrier Alpha
+  │  │  OFT   FREIGHT      $800.00 USD
+  │  │  BAF   SURCHARGE    $200.00 USD
+  │  └ 小計: $1000.00 USD
+  │  ┌ Global FWD
+  │  │  OFT   FREIGHT      $850.00 USD
+  │  │  BAF   SURCHARGE    $220.00 USD
+  │  └ 小計: $1070.00 USD
+  │
+  │  ----------------------------------------
+  │  最安合計: $1000.00 USD (Ocean Carrier Alpha)
+  │  全Provider合計: $2070.00 USD
+  └──────────────────────────────────────────────────────
 
-  Rate: 2026 H1 Rate (Status: ACTIVE)
-
-  ┌─ [シミュレーション結果] Tokyo → Shanghai (OCEAN) ✓ 輸送可能 ────
-  │ Charge    Category      Amount
-  │ ----------------------------------------
-  │ OFT       FREIGHT       $1130.00 USD
-  │ BAF       SURCHARGE     $350.00 USD
-  │ THC       HANDLING      $145.00 USD
-  │ CFS       FREIGHT       $510.00 USD
-  │ ----------------------------------------
-  │ 合計見積額: $2135.00 USD
-  └──────────────────────────────────────────────
-
-  ┌─ [シミュレーション結果] Tokyo → Singapore (OCEAN) ✓ 輸送可能 ────
-  │ Charge    Category      Amount
-  │ ----------------------------------------
-  │ OFT       FREIGHT       $1420.00 USD
-  │ BAF       SURCHARGE     $360.00 USD
-  │ THC       HANDLING      $180.00 USD
-  │ CFS       FREIGHT       $600.00 USD
-  │ ----------------------------------------
-  │ 合計見積額: $2560.00 USD
-  └──────────────────────────────────────────────
-
-  ┌─ [シミュレーション結果] Singapore → Tokyo (OCEAN) ✗ 輸送不可 ────
+  ┌─ [Route D] Bangkok Port -> Tokyo Port (unavailable) ✗ 輸送不可 ─────
   │ 該当するレートエントリが見つかりません
-  │ → このルートは現在のレートではカバーされていません
-  └──────────────────────────────────────────────
+  │ -> このルートは現在のレートではカバーされていません
+  └──────────────────────────────────────────────────────
 
-  シミュレーション完了: 2/3 ルートが輸送可能
+  シミュレーション完了: 3/4 ルートが輸送可能
 
 === Scenario Complete ===
 ```

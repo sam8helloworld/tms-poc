@@ -54,11 +54,31 @@ type SimulateRateCostOutput struct {
 
 // RouteSimulationResult: ルートごとのシミュレーション結果
 type RouteSimulationResult struct {
-	Route          route.PhysicalRoute
-	AppliedCharges []SimulatedCharge  // 適用された費目（計算済み金額）
-	SkippedCharges []SimulatedSkipped // スキップされた費目
-	TotalAmounts   []CurrencyTotal    // 通貨別合計
-	IsAvailable    bool               // 輸送可能か（適用費目が存在するか）
+	Route            route.PhysicalRoute
+	AppliedCharges   []SimulatedCharge        // 適用された費目（計算済み金額）— 全セグメントのunion（後方互換）
+	SkippedCharges   []SimulatedSkipped       // スキップされた費目
+	TotalAmounts     []CurrencyTotal          // 通貨別合計
+	IsAvailable      bool                     // 輸送可能か（適用費目が存在するか）
+	SegmentBreakdown []SegmentSimulationResult // セグメントごとの内訳
+}
+
+// SegmentSimulationResult: セグメントごとのシミュレーション結果
+type SegmentSimulationResult struct {
+	SegmentIndex    int
+	OriginID        route.LocationID
+	DestinationID   route.LocationID
+	Mode            shared.TransportMode
+	ProviderCharges []ProviderChargeGroup
+	SkippedCharges  []SimulatedSkipped
+	SegmentTotals   []CurrencyTotal
+	HasEntries      bool
+}
+
+// ProviderChargeGroup: プロバイダーごとの費目グループ
+type ProviderChargeGroup struct {
+	ProviderID uuid.UUID
+	Charges    []SimulatedCharge
+	Subtotal   []CurrencyTotal
 }
 
 // SimulatedCharge: シミュレーションで適用された費目
@@ -130,95 +150,112 @@ func (uc *SimulateRateCostUseCase) Execute(
 }
 
 // simulateRoute: 1ルートに対するシミュレーションを実行
+// 各セグメントごとにエントリを検索し、セグメント別・プロバイダー別の内訳を生成する
 func (uc *SimulateRateCostUseCase) simulateRoute(
 	ctx context.Context,
 	r *domainrate.Rate,
 	routeInput SimulationRouteInput,
 ) (*RouteSimulationResult, error) {
-	// ルートの最初のセグメントからOrigin/Destination/Modeを取得
 	if len(routeInput.Route.Segments) == 0 {
 		return &RouteSimulationResult{
-			Route:          routeInput.Route,
-			AppliedCharges: make([]SimulatedCharge, 0),
-			SkippedCharges: make([]SimulatedSkipped, 0),
-			TotalAmounts:   make([]CurrencyTotal, 0),
-			IsAvailable:    false,
-		}, nil
-	}
-
-	// ドメインモデルのルート検索を利用して該当エントリを検索
-	matched := r.FindEntriesForRoute(
-		routeInput.Route.OriginID,
-		routeInput.Route.DestinationID,
-		routeInput.Route.Segments[0].Mode,
-	)
-
-	if len(matched) == 0 {
-		return &RouteSimulationResult{
-			Route:          routeInput.Route,
-			AppliedCharges: make([]SimulatedCharge, 0),
-			SkippedCharges: make([]SimulatedSkipped, 0),
-			TotalAmounts:   make([]CurrencyTotal, 0),
-			IsAvailable:    false,
-		}, nil
-	}
-
-	// 各RateEntryに対してTariffCalculatorで料金計算
-	appliedCharges := make([]SimulatedCharge, 0, len(matched))
-	skippedCharges := make([]SimulatedSkipped, 0)
-	totals := make(map[string]shared.Money)
-
-	for _, entry := range matched {
-		calcInput := domainrate.TariffCalculationInput{
-			TariffID:         entry.TariffID,
-			TariffLineItemID: entry.TariffLineItemID,
 			Route:            routeInput.Route,
-			Quantity:         routeInput.Quantity,
-			WeightKG:         routeInput.WeightKG,
-			VolumeM3:         routeInput.VolumeM3,
-		}
+			AppliedCharges:   make([]SimulatedCharge, 0),
+			SkippedCharges:   make([]SimulatedSkipped, 0),
+			TotalAmounts:     make([]CurrencyTotal, 0),
+			SegmentBreakdown: make([]SegmentSimulationResult, 0),
+			IsAvailable:      false,
+		}, nil
+	}
 
-		chargeResult, err := uc.tariffCalculator.Calculate(ctx, calcInput)
-		if err != nil {
-			return nil, NewSimulateRateCostError("CALCULATION_ERROR",
-				"tariff calculation failed for entry "+entry.ID.String()).
-				WithDetail("entryID", entry.ID).
-				WithDetail("tariffID", entry.TariffID)
-		}
+	// 全セグメント横断のフラットリスト（後方互換）
+	allApplied := make([]SimulatedCharge, 0)
+	allSkipped := make([]SimulatedSkipped, 0)
+	allTotals := make(map[string]shared.Money)
+	processedEntryIDs := make(map[uuid.UUID]bool)
 
-		if chargeResult.Skipped {
-			skippedCharges = append(skippedCharges, SimulatedSkipped{
+	segmentBreakdown := make([]SegmentSimulationResult, 0, len(routeInput.Route.Segments))
+
+	for si, seg := range routeInput.Route.Segments {
+		matched := r.FindEntriesForRoute(seg.OriginLocationID, seg.DestLocationID, seg.Mode)
+
+		segApplied := make([]SimulatedCharge, 0)
+		segSkipped := make([]SimulatedSkipped, 0)
+
+		for _, entry := range matched {
+			if processedEntryIDs[entry.ID] {
+				continue
+			}
+			processedEntryIDs[entry.ID] = true
+
+			calcInput := domainrate.TariffCalculationInput{
+				TariffID:         entry.TariffID,
+				TariffLineItemID: entry.TariffLineItemID,
+				Route:            routeInput.Route,
+				Quantity:         routeInput.Quantity,
+				WeightKG:         routeInput.WeightKG,
+				VolumeM3:         routeInput.VolumeM3,
+			}
+
+			chargeResult, err := uc.tariffCalculator.Calculate(ctx, calcInput)
+			if err != nil {
+				return nil, NewSimulateRateCostError("CALCULATION_ERROR",
+					"tariff calculation failed for entry "+entry.ID.String()).
+					WithDetail("entryID", entry.ID).
+					WithDetail("tariffID", entry.TariffID)
+			}
+
+			if chargeResult.Skipped {
+				skipped := SimulatedSkipped{
+					EntryID:    entry.ID,
+					ChargeCode: chargeResult.ChargeCode,
+					Category:   chargeResult.Category,
+					Reason:     chargeResult.SkipReason,
+				}
+				segSkipped = append(segSkipped, skipped)
+				allSkipped = append(allSkipped, skipped)
+				continue
+			}
+
+			charge := SimulatedCharge{
 				EntryID:    entry.ID,
 				ChargeCode: chargeResult.ChargeCode,
 				Category:   chargeResult.Category,
-				Reason:     chargeResult.SkipReason,
-			})
-			continue
-		}
-
-		appliedCharges = append(appliedCharges, SimulatedCharge{
-			EntryID:    entry.ID,
-			ChargeCode: chargeResult.ChargeCode,
-			Category:   chargeResult.Category,
-			ProviderID: entry.ProviderID,
-			Amount:     chargeResult.Amount,
-		})
-
-		// 通貨別合計を更新
-		currency := chargeResult.Amount.Currency
-		if existing, ok := totals[currency]; ok {
-			sum, addErr := existing.Add(chargeResult.Amount)
-			if addErr == nil {
-				totals[currency] = sum
+				ProviderID: entry.ProviderID,
+				Amount:     chargeResult.Amount,
 			}
-		} else {
-			totals[currency] = chargeResult.Amount
+			segApplied = append(segApplied, charge)
+			allApplied = append(allApplied, charge)
+
+			currency := chargeResult.Amount.Currency
+			if existing, ok := allTotals[currency]; ok {
+				sum, addErr := existing.Add(chargeResult.Amount)
+				if addErr == nil {
+					allTotals[currency] = sum
+				}
+			} else {
+				allTotals[currency] = chargeResult.Amount
+			}
 		}
+
+		// セグメント結果を構築
+		providerGroups := groupChargesByProvider(segApplied)
+		segTotals := sumCharges(segApplied)
+
+		segmentBreakdown = append(segmentBreakdown, SegmentSimulationResult{
+			SegmentIndex:    si,
+			OriginID:        seg.OriginLocationID,
+			DestinationID:   seg.DestLocationID,
+			Mode:            seg.Mode,
+			ProviderCharges: providerGroups,
+			SkippedCharges:  segSkipped,
+			SegmentTotals:   segTotals,
+			HasEntries:      len(segApplied) > 0,
+		})
 	}
 
 	// 通貨別合計をスライスに変換
-	totalAmounts := make([]CurrencyTotal, 0, len(totals))
-	for currency, amount := range totals {
+	totalAmounts := make([]CurrencyTotal, 0, len(allTotals))
+	for currency, amount := range allTotals {
 		totalAmounts = append(totalAmounts, CurrencyTotal{
 			Currency: currency,
 			Amount:   amount,
@@ -226,12 +263,60 @@ func (uc *SimulateRateCostUseCase) simulateRoute(
 	}
 
 	return &RouteSimulationResult{
-		Route:          routeInput.Route,
-		AppliedCharges: appliedCharges,
-		SkippedCharges: skippedCharges,
-		TotalAmounts:   totalAmounts,
-		IsAvailable:    len(appliedCharges) > 0,
+		Route:            routeInput.Route,
+		AppliedCharges:   allApplied,
+		SkippedCharges:   allSkipped,
+		TotalAmounts:     totalAmounts,
+		IsAvailable:      len(allApplied) > 0,
+		SegmentBreakdown: segmentBreakdown,
 	}, nil
+}
+
+// groupChargesByProvider: 費目をプロバイダーごとにグループ化
+func groupChargesByProvider(charges []SimulatedCharge) []ProviderChargeGroup {
+	orderMap := make(map[uuid.UUID]int)
+	groups := make([]ProviderChargeGroup, 0)
+
+	for _, charge := range charges {
+		idx, exists := orderMap[charge.ProviderID]
+		if !exists {
+			idx = len(groups)
+			orderMap[charge.ProviderID] = idx
+			groups = append(groups, ProviderChargeGroup{
+				ProviderID: charge.ProviderID,
+				Charges:    make([]SimulatedCharge, 0),
+			})
+		}
+		groups[idx].Charges = append(groups[idx].Charges, charge)
+	}
+
+	// 各グループの小計を計算
+	for i := range groups {
+		groups[i].Subtotal = sumCharges(groups[i].Charges)
+	}
+
+	return groups
+}
+
+// sumCharges: 費目リストの通貨別合計を計算
+func sumCharges(charges []SimulatedCharge) []CurrencyTotal {
+	totals := make(map[string]shared.Money)
+	for _, c := range charges {
+		currency := c.Amount.Currency
+		if existing, ok := totals[currency]; ok {
+			sum, err := existing.Add(c.Amount)
+			if err == nil {
+				totals[currency] = sum
+			}
+		} else {
+			totals[currency] = c.Amount
+		}
+	}
+	result := make([]CurrencyTotal, 0, len(totals))
+	for currency, amount := range totals {
+		result = append(result, CurrencyTotal{Currency: currency, Amount: amount})
+	}
+	return result
 }
 
 func (uc *SimulateRateCostUseCase) validateInput(input SimulateRateCostInput) error {
