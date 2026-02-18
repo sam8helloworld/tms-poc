@@ -66,10 +66,10 @@ func (r *PostgresTariffRepo) Save(ctx context.Context, t *pricing.Tariff) error 
 		}
 
 		_, err = tx.Exec(ctx, `
-			INSERT INTO tariff_line_items (id, tariff_id, charge_code, category, scope, logic, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			INSERT INTO tariff_line_items (id, tariff_id, charge_code, category, scope, logic, operator_vendor_id, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 			item.ID, t.ID, item.ChargeCode, item.Category,
-			scopeJSON, logicJSON, time.Now(),
+			scopeJSON, logicJSON, item.OperatorVendorID, time.Now(),
 		)
 		if err != nil {
 			return fmt.Errorf("insert line item: %w", err)
@@ -172,7 +172,7 @@ func scanTariffHeader(s scannable) (*pricing.Tariff, error) {
 
 func (r *PostgresTariffRepo) loadLineItems(ctx context.Context, tariffID uuid.UUID) ([]pricing.TariffLineItem, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, charge_code, category, scope, logic
+		SELECT id, charge_code, category, scope, logic, operator_vendor_id
 		FROM tariff_line_items WHERE tariff_id = $1`, tariffID)
 	if err != nil {
 		return nil, err
@@ -183,7 +183,7 @@ func (r *PostgresTariffRepo) loadLineItems(ctx context.Context, tariffID uuid.UU
 	for rows.Next() {
 		var item pricing.TariffLineItem
 		var scopeJSON, logicJSON []byte
-		err := rows.Scan(&item.ID, &item.ChargeCode, &item.Category, &scopeJSON, &logicJSON)
+		err := rows.Scan(&item.ID, &item.ChargeCode, &item.Category, &scopeJSON, &logicJSON, &item.OperatorVendorID)
 		if err != nil {
 			return nil, err
 		}

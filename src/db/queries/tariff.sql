@@ -30,8 +30,8 @@ DELETE FROM tariffs WHERE id = $1;
 SELECT * FROM tariff_line_items WHERE tariff_id = $1;
 
 -- name: InsertTariffLineItem :exec
-INSERT INTO tariff_line_items (id, tariff_id, charge_code, category, scope, logic, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7);
+INSERT INTO tariff_line_items (id, tariff_id, charge_code, category, scope, logic, operator_vendor_id, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
 
 -- name: DeleteTariffLineItemsByTariffID :exec
 DELETE FROM tariff_line_items WHERE tariff_id = $1;
