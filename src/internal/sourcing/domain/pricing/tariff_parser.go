@@ -23,12 +23,13 @@ type ParsedTariffData struct {
 // ParsedLineItem: 解析された料金明細1行のデータ
 type ParsedLineItem struct {
 	ChargeCode        string
-	ChargeName        string              // 外部システムでの料金名称
+	ChargeName        string // 外部システムでの料金名称
 	Category          string
 	ServiceScopeType  ServiceScopeType    // ScopeLocation or ScopeTransportation
 	ServiceScopeAttrs map[string]string   // LocationID, OriginID, DestinationID, Mode など
 	PricingType       PricingStrategyType // PricingFlat, PricingExpression, PricingComposite
 	PricingAttrs      map[string]any      // Amount, Currency, Formula, Steps など
+	OperatorVendorID  *uuid.UUID          // 実際の作業業者（任意）
 }
 
 // TariffParser: 料金表ファイルを解析するインターフェース

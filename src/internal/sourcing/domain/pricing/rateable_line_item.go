@@ -8,14 +8,15 @@ import (
 // RateableLineItem: Rate BC向けのBC中立なDTO
 // Tariff LineItemから抽出したルート・単価情報
 type RateableLineItem struct {
-	LineItemID    uuid.UUID
-	TariffID      uuid.UUID
-	ChargeCode    string
-	Category      string
-	OriginID      *uuid.UUID
-	DestinationID *uuid.UUID
-	TransportMode *string
-	UnitPrice     *shared.Money // FlatStrategy の場合のみ。他は nil
+	LineItemID       uuid.UUID
+	TariffID         uuid.UUID
+	ChargeCode       string
+	Category         string
+	OriginID         *uuid.UUID
+	DestinationID    *uuid.UUID
+	TransportMode    *string
+	UnitPrice        *shared.Money // FlatStrategy の場合のみ。他は nil
+	OperatorVendorID *uuid.UUID    // 実際の作業業者（任意）
 }
 
 // ExtractRateableItems: TariffのLineItemsからRate BCが消費可能な形式に変換
@@ -24,10 +25,11 @@ func ExtractRateableItems(tariff *Tariff) []RateableLineItem {
 	items := make([]RateableLineItem, 0, len(tariff.LineItems))
 	for _, li := range tariff.LineItems {
 		item := RateableLineItem{
-			LineItemID: li.ID,
-			TariffID:   tariff.ID,
-			ChargeCode: li.ChargeCode,
-			Category:   li.Category,
+			LineItemID:       li.ID,
+			TariffID:         tariff.ID,
+			ChargeCode:       li.ChargeCode,
+			Category:         li.Category,
+			OperatorVendorID: li.OperatorVendorID,
 		}
 
 		// Scope からルート情報を抽出
