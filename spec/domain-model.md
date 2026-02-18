@@ -433,6 +433,7 @@ classDiagram
             Category: String
             Scope: ServiceScope
             Logic: PricingStrategy
+            OperatorVendorID: UUID(任意)
         }
 
         class CargoItem["貨物明細<br/>(CargoItem)"] {
@@ -1077,6 +1078,7 @@ classDiagram
     Tariff --> Tariff : バージョン元(任意)
     TariffLineItem --> ServiceScope : 適用範囲
     TariffLineItem --> PricingStrategy : 計算ロジック
+    TariffLineItem --> Vendor : 作業業者参照(任意)
     CargoItem "1" *-- "1" CargoProperties : 含む
     CargoSummary "1" *-- "0..n" ContainerRequirement : 含む
     CalculationRequest "1" *-- "0..n" CargoItem : 含む
@@ -1180,7 +1182,7 @@ classDiagram
 
     note for ServiceContract "・ステータス遷移: DRAFT → CONTRACTED → EXPIRED/CANCELLED<br/>・DRAFT状態: 入札段階で複数業者から料金表を受領<br/>・CONTRACTED状態: 契約成立後も料金表改定可能<br/>・statusフィールドはprivate、getter経由でアクセス<br/>・料金表(Tariff)は独立集約として分離（ContractIDで参照）"
 
-    note for Tariff "・独立した集約ルート（ContractIDで契約を参照）<br/>・バージョン管理: 同じ名前でもVersionが異なれば別レコード<br/>・Version=1, BaseVersionID=nil: 初版<br/>・Version>1, BaseVersionID設定: 改定版<br/>・EventRecorder埋め込みでドメインイベント記録<br/>・CalculateCharges: CalculationRequestに基づき各費目のコストを計算<br/>　- Scope判定でスキップ/適用を振り分け<br/>　- 複数通貨混在を許容し通貨別に集計"
+    note for Tariff "・独立した集約ルート（ContractIDで契約を参照）<br/>・バージョン管理: 同じ名前でもVersionが異なれば別レコード<br/>・Version=1, BaseVersionID=nil: 初版<br/>・Version>1, BaseVersionID設定: 改定版<br/>・EventRecorder埋め込みでドメインイベント記録<br/>・CalculateCharges: CalculationRequestに基づき各費目のコストを計算<br/>　- Scope判定でスキップ/適用を振り分け<br/>　- 複数通貨混在を許容し通貨別に集計<br/>・LineItemのOperatorVendorID: 各料金項目の実際の作業業者（任意）<br/>　- nilの場合は契約者(ProviderID)と同一または未指定<br/>　- 例: 国際輸送=船社id, 倉庫作業=倉庫業者ID"
 
     note for Rate "・ステータス遷移: DRAFT → ACTIVE → EXPIRED<br/>・複数業者のTariffからLineItem単位で選択・組み合わせた社内レート<br/>・DRAFT状態: エントリ追加・削除・LineItem差し替え可能<br/>・ACTIVE状態: エントリの変更不可<br/>・RateEntryはTariff LineItem粒度（ChargeCode, UnitPriceをデノーマライズ）<br/>・entries, statusフィールドはprivate、getter経由でアクセス"
 
@@ -1271,6 +1273,9 @@ classDiagram
     - Scope判定で適用/スキップを振り分け
     - 複数通貨混在を許容し通貨別にTotalAmountsを集計
 - **TariffLineItem**: 個別の料金定義（THC、運賃など）
+  - OperatorVendorID: この料金項目の実際の作業業者（任意）
+  - nilの場合は契約者(契約のProviderID)と同一、または料金表時点で未指定
+  - 例: 国際輸送運賃(OFT)=船社id、倉庫作業(THC)=倉庫業者ID
 - **CargoItem**: 個別の貨物明細（品名、HSコード、重量、容積、属性）
 - **CargoProperties**: 貨物属性（危険物クラス、温度管理、超過サイズ等）
 - **CargoSummary**: 貨物集計情報（総数量、総重量、課金重量、コンテナ要件）

@@ -179,6 +179,7 @@ Migrations are managed by golang-migrate in `src/db/migrations/`. Each migration
 | 000009 | operation_sop | sop_definitions, sop_step_definitions, sop_instances, sop_tasks |
 | 000010 | documents | documents, document_reviews |
 | 000011 | domain_events | domain_events (outbox) |
+| 000012 | tariff_operator_vendor | tariff_line_items に operator_vendor_id を追加 |
 
 ### Key DB Design Patterns
 
