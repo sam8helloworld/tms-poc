@@ -544,6 +544,109 @@ cd src && go run ./cmd/tms scenario run <scenario-name>
 
 ---
 
+### `csv-tariff-parse` — CSV料金表パーサー動作確認
+
+**概要**: CSVTariffParser（LLM＋LocationResolver）を直接呼び出し、testdataの4種類のCSVファイルをパースしてParsedTariffDataの内容を表形式で出力します。UseCaseは使用せず、パーサー単体の動作確認に特化しています。
+
+> **前提**: LM Studio等のOpenAI互換APIが起動している必要があります。環境変数 `LLM_ENDPOINT`（デフォルト: `http://localhost:1234`）と `LLM_MODEL`（デフォルト: `qwen3-14b`）で設定可能です。
+
+#### 業務フロー（4ステップ）
+
+| ステップ | 内容 | 処理 |
+|---------|------|------|
+| Setup | 拠点マスタ作成（10箇所） | LocationRepo 直接操作 |
+| Step 1 | `fwd_full_route.csv` パース | FWD全区間（OCEAN+TRUCK, JPY/USD混在） |
+| Step 2 | `customs_broker.csv` パース | 乙仲料金（LOCATIONスコープ） |
+| Step 3 | `trucking_drayage.csv` パース | ドレージ料金（TRUCKモード） |
+| Step 4 | `airline_air_freight.csv` パース | 航空料金（ExpressionStrategy・重量帯別） |
+
+#### Setup で作成するマスターデータ
+
+**拠点（10箇所）**
+
+| 名称 | UN/LOCODE | 国 | 種別 |
+|-----|-----------|---|------|
+| Tokyo | JPTYO | JP | PORT |
+| Yokohama | JPYOK | JP | PORT |
+| Los Angeles | USLAX | US | PORT |
+| Los Angeles Port | - | US | PORT |
+| Los Angeles Warehouse | - | US | WAREHOUSE |
+| Long Beach Port | - | US | PORT |
+| Inland Empire DC | - | US | WAREHOUSE |
+| New York | USNYC | US | PORT |
+| Felixstowe | GBFXT | GB | PORT |
+| Hamburg | DEHAM | DE | PORT |
+
+#### 出力例
+
+```
+=== CSV Tariff Parse Scenario ===
+
+[Setup] Creating 10 locations... done
+
+  ┌─ [拠点マスタ] 登録済み拠点 ─────────────────────────────
+  │ Code   Name                       Country   Type
+  │ -------------------------------------------------------
+  │ JPTYO  Tokyo                      JP        PORT
+  │ JPYOK  Yokohama                   JP        PORT
+  │ USLAX  Los Angeles                US        PORT
+  │ -      Los Angeles Port           US        PORT
+  │ -      Los Angeles Warehouse      US        WAREHOUSE
+  │ -      Long Beach Port            US        PORT
+  │ -      Inland Empire DC           US        WAREHOUSE
+  │ USNYC  New York                   US        PORT
+  │ GBFXT  Felixstowe                 GB        PORT
+  │ DEHAM  Hamburg                    DE        PORT
+  └─ 計 10 件
+
+  LLM: http://localhost:1234 (model: qwen3-14b)
+
+[Step 1] FWD全区間料金表（OCEAN+TRUCK, JPY/USD）
+  → ファイル: fwd_full_route.csv
+
+  ┌─ [パース結果] ────────────────────────────────────────────
+  │ TariffName:    N/A
+  │ EffectiveFrom: N/A
+  │ EffectiveTo:   N/A
+  │ LineItems:     9 件
+  │
+  │ #    ChargeCode   Category       ScopeType        PricingType  PricingAttrs
+  │ --------------------------------------------------------------------------------
+  │ 1    THC          LOCAL          TRANSPORTATION   FLAT         35000 JPY
+  │      → a1b2c3d4 → a1b2c3d4 (OCEAN)
+  │ 2    CFS          LOCAL          TRANSPORTATION   FLAT         15000 JPY
+  │      → a1b2c3d4 → a1b2c3d4 (OCEAN)
+  │ ...
+  └─ 計 9 件
+
+[Step 2] 乙仲料金表（LOCATIONスコープ）
+  → ファイル: customs_broker.csv
+  ...
+
+[Step 3] ドレージ料金表（TRUCKモード）
+  → ファイル: trucking_drayage.csv
+  ...
+
+[Step 4] 航空料金表（ExpressionStrategy）
+  → ファイル: airline_air_freight.csv
+
+  ┌─ [パース結果] ────────────────────────────────────────────
+  │ TariffName:    Air Freight Tariff - Tokyo Narita to Los Angeles
+  │ EffectiveFrom: 2025-04-01
+  │ EffectiveTo:   2025-09-30
+  │ LineItems:     5 件
+  │
+  │ #    ChargeCode   Category       ScopeType        PricingType  PricingAttrs
+  │ --------------------------------------------------------------------------------
+  │ 1    AIR_FREIGHT  FREIGHT        TRANSPORTATION   EXPRESSION   weight*8.5 (USD)
+  │ ...
+  └─ 計 5 件
+
+=== Scenario Complete ===
+```
+
+---
+
 ## 新しいシナリオの追加方法
 
 1. このディレクトリに `my_scenario.go` を作成する

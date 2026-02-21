@@ -1,0 +1,10 @@
+Charge Code,Charge Name,Category,Origin,Destination,Mode,Amount,Currency
+THC,Terminal Handling Charge,LOCAL,Tokyo,Tokyo,OCEAN,35000,JPY
+CFS,Container Freight Station,LOCAL,Tokyo,Tokyo,OCEAN,15000,JPY
+DOC,Documentation Fee,DOCUMENTATION,Tokyo,Tokyo,OCEAN,5000,JPY
+OFR,Ocean Freight,FREIGHT,Tokyo,Los Angeles,OCEAN,1200,USD
+BAF,Bunker Adjustment Factor,SURCHARGE,Tokyo,Los Angeles,OCEAN,350,USD
+CAF,Currency Adjustment Factor,SURCHARGE,Tokyo,Los Angeles,OCEAN,50,USD
+THC,Terminal Handling Charge,LOCAL,Los Angeles,Los Angeles,OCEAN,250,USD
+DRAYAGE,Drayage,FREIGHT,Los Angeles,Los Angeles Warehouse,TRUCK,450,USD
+WRS,Warehouse Receiving,LOCAL,Los Angeles Warehouse,Los Angeles Warehouse,TRUCK,180,USD

@@ -1,0 +1,13 @@
+Tariff: International Ocean Freight Q1 2025
+Valid: 2025-01-01 to 2025-03-31
+Currency: USD
+
+Code,Description,From,To,Rate
+OFR,Ocean Freight,JPTYO,USLAX,1150
+OFR,Ocean Freight,JPTYO,USNYC,1350
+OFR,Ocean Freight,JPTYO,GBFXT,1500
+BAF,Bunker Adjustment Factor,JPTYO,USLAX,320
+BAF,Bunker Adjustment Factor,JPTYO,USNYC,380
+BAF,Bunker Adjustment Factor,JPTYO,GBFXT,410
+PSS,Peak Season Surcharge,JPTYO,USLAX,200
+PSS,Peak Season Surcharge,JPTYO,USNYC,200

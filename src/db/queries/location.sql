@@ -15,3 +15,12 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
 UPDATE locations
 SET name = $2, un_locode = $3, country_code = $4, type = $5, attributes = $6, updated_at = $7
 WHERE id = $1;
+
+-- name: FindLocationByNameExact :one
+SELECT id, name, un_locode, country_code, type FROM locations
+WHERE UPPER(name) = UPPER($1) LIMIT 1;
+
+-- name: FindLocationByNamePartial :one
+SELECT id, name, un_locode, country_code, type FROM locations
+WHERE UPPER(name) LIKE '%' || UPPER($1) || '%'
+ORDER BY LENGTH(name) ASC LIMIT 1;

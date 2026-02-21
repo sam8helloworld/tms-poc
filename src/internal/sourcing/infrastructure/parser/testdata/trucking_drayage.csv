@@ -1,0 +1,7 @@
+Origin,Destination,Vehicle Type,Rate (USD),Notes
+Los Angeles Port,Los Angeles Warehouse,20ft Chassis,350,Standard drayage
+Los Angeles Port,Los Angeles Warehouse,40ft Chassis,450,Standard drayage
+Los Angeles Port,Inland Empire DC,20ft Chassis,650,Extended haul
+Los Angeles Port,Inland Empire DC,40ft Chassis,800,Extended haul
+Long Beach Port,Los Angeles Warehouse,20ft Chassis,380,Standard drayage
+Long Beach Port,Los Angeles Warehouse,40ft Chassis,480,Standard drayage

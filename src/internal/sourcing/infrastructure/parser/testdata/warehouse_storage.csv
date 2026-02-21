@@ -1,0 +1,10 @@
+Warehouse: Tokyo Warehouse
+Valid Period: 2025-01-01 - 2025-12-31
+
+Service,Unit,Rate (JPY)
+Storage,per CBM/day,150
+Loading/Unloading,per shipment,5000
+Palletization,per pallet,800
+Labeling,per carton,50
+Fumigation,per shipment,25000
+Inventory Management,per month,30000

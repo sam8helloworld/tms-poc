@@ -14,6 +14,7 @@ var scenarioRegistry = []scenarios.Scenario{
 	&scenarios.RateBafUpdateScenario{},
 	&scenarios.RateSimulationScenario{},
 	&scenarios.ShipmentDocumentScenario{},
+	&scenarios.CsvTariffParseScenario{},
 }
 
 var scenarioCmd = &cobra.Command{

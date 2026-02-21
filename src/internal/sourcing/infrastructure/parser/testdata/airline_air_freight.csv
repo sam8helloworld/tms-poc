@@ -1,0 +1,9 @@
+Air Freight Tariff - Tokyo Narita to Los Angeles
+Effective: 2025-04-01 to 2025-09-30
+
+Weight Min (kg),Weight Max (kg),Rate per kg (USD)
+0,45,8.50
+45,100,7.20
+100,300,6.00
+300,500,5.20
+500,1000,4.50

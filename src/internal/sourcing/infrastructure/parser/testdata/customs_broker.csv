@@ -1,0 +1,9 @@
+Service Code,Service Name,Location,Amount,Currency
+CUSTOMS_CLEARANCE,Import Customs Clearance,Los Angeles,350,USD
+CUSTOMS_CLEARANCE,Export Customs Clearance,Tokyo,25000,JPY
+DUTY_CALC,Duty Calculation Service,Los Angeles,150,USD
+AMS,Automated Manifest System,Los Angeles,35,USD
+ISF,Importer Security Filing,Los Angeles,50,USD
+EXAM,Customs Examination,Los Angeles,500,USD
+FUMIGATION,Fumigation Certificate,Tokyo,15000,JPY
+CO,Certificate of Origin,Tokyo,5000,JPY
